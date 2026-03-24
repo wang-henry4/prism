@@ -130,6 +130,9 @@ def main() -> None:
     }
 
     for split_name, (start, end) in splits.items():
+        if start == end:
+            print(f"{split_name}: 0 samples → skipping")
+            continue
         split_dir = os.path.join(args.out_dir, split_name)
         os.makedirs(split_dir, exist_ok=True)
         part_idx = _next_partition_index(split_dir)
