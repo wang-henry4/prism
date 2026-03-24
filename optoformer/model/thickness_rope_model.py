@@ -1,11 +1,9 @@
 """
-Thickness-RoPE model: thickness is not embedded; instead it is used directly as
-the RoPE position argument (physical nm depth), encoding geometry in the
+Thickness-RoPE model: thickness is not embedded; instead the cumulative depth
+(nm) is used directly as the RoPE position argument, encoding geometry in the
 attention rotation rather than in the token embedding.
 
-Two position variants are supported (select via `pos_mode`):
-  - "raw"    : positions = thk_val[i]       (nm per layer)
-  - "cumsum" : positions = cumsum(thk_vals)  (cumulative depth in nm)
+    positions = cumsum(thk_vals)  — cumulative depth in nm
 """
 
 import math
@@ -45,20 +43,13 @@ class MaterialEmbedding(nn.Module):
         return self.mat_embed(mat_ids) * self.scale
 
 
-def _build_positions(thk_vals: Tensor, pos_mode: str) -> Tensor:
-    """Convert thickness values to RoPE positions according to `pos_mode`."""
-    if pos_mode == "cumsum":
-        return thk_vals.float().cumsum(dim=-1)
-    return thk_vals.float()  # "raw"
-
-
 class InverseModel(nn.Module):
     """
     Autoregressive decoder: target spectrum → thin-film structure.
 
     The spectrum is projected to a single memory token; the decoder cross-attends
     to it and produces per-position material logits and thickness predictions.
-    RoPE positions are physical nm thicknesses (or cumulative depth).
+    RoPE positions are cumulative depth in nm.
     """
 
     def __init__(
@@ -70,12 +61,9 @@ class InverseModel(nn.Module):
         d_ff: int = 2048,
         dropout: float = 0.1,
         n_spectrum: int = N_SPECTRUM,
-        pos_mode: str = "cumsum",
     ):
         super().__init__()
-        assert pos_mode in ("raw", "cumsum"), f"Unknown pos_mode: {pos_mode!r}"
         self.vocab_size = vocab_size
-        self.pos_mode   = pos_mode
 
         self.spectrum_proj = SpectrumProjection(d_model, n_spectrum)
         self.embedding     = MaterialEmbedding(vocab_size, d_model)
@@ -104,7 +92,7 @@ class InverseModel(nn.Module):
 
         memory    = self.spectrum_proj(spectrum)       # [B, 1, d_model]
         x         = self.embedding(tgt_mat, tgt_thk)  # [B, T, d_model]
-        positions = _build_positions(tgt_thk, self.pos_mode)  # [B, T]
+        positions = tgt_thk.float().cumsum(dim=-1)     # [B, T]
 
         for layer in self.layers:
             x = layer(x, memory, tgt_mask, None, positions)

@@ -12,7 +12,7 @@ Two model types:
 
 Two architectural variants are being benchmarked:
 - **Architecture A**: thickness projected as a learned linear embedding, added to material embedding; RoPE uses standard sequential positions
-- **Architecture B**: thickness used directly as the RoPE position argument (physical nm depth), no thickness embedding
+- **Architecture B**: thickness used directly as the RoPE position argument (cumulative depth in nm), no thickness embedding
 
 ## Setup
 
@@ -135,10 +135,8 @@ Cosine annealing with linear warmup: `peak_lr=3e-4`, `warmup_steps=2000`, `min_l
 
 ### Loss functions
 
-- **ForwardModel**: `MSELoss` on spectrum
 - **InverseModel**: label-smoothed KL divergence (`smoothing=0.1`) for material head + masked MSE (nm) for thickness head; both normalised by non-padding token count
 
-### Architecture B RoPE variants to benchmark
+### Architecture B/C RoPE positions
 
-- `positions = thk_val[i]` — raw nm per layer
-- `positions = cumsum(thk_vals)` — cumulative depth in nm
+`positions = cumsum(thk_vals)` — cumulative depth in nm

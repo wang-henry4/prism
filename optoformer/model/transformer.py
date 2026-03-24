@@ -44,7 +44,7 @@ def make_inverse_model(vocab_size: int, config: dict):
     if arch == "A":
         return thickness_embedding_model.InverseModel(**kwargs)
     if arch == "B":
-        return thickness_rope_model.InverseModel(**kwargs, pos_mode=config.get("pos_mode", "cumsum"))
+        return thickness_rope_model.InverseModel(**kwargs)
     if arch == "C":
-        return prefix_model.InverseModel(**kwargs, pos_mode=config.get("pos_mode", "cumsum"))
+        return prefix_model.InverseModel(**kwargs)
     raise ValueError(f"Unknown arch: {arch!r}. Expected 'A', 'B', or 'C'.")

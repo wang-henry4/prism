@@ -7,9 +7,7 @@ structurally an encoder stack with causal masking.  The spectrum prefix
 token sits at position 0 and all material/thickness tokens attend to it
 (and to each other, causally) through standard self-attention.
 
-Two RoPE position variants are supported (select via `pos_mode`):
-  - "raw"    : positions = thk_val[i]       (nm per layer)
-  - "cumsum" : positions = cumsum(thk_vals)  (cumulative depth in nm)
+RoPE positions use cumulative depth in nm.
 """
 
 import math
@@ -24,13 +22,6 @@ from .common import (
     EncoderLayer,
     SpectrumProjection,
 )
-
-
-def _build_positions(thk_vals: Tensor, pos_mode: str) -> Tensor:
-    """Convert thickness values to RoPE positions according to `pos_mode`."""
-    if pos_mode == "cumsum":
-        return thk_vals.float().cumsum(dim=-1)
-    return thk_vals.float()  # "raw"
 
 
 class MaterialEmbedding(nn.Module):
@@ -71,12 +62,9 @@ class InverseModel(nn.Module):
         d_ff: int = 2048,
         dropout: float = 0.1,
         n_spectrum: int = N_SPECTRUM,
-        pos_mode: str = "cumsum",
     ):
         super().__init__()
-        assert pos_mode in ("raw", "cumsum"), f"Unknown pos_mode: {pos_mode!r}"
         self.vocab_size = vocab_size
-        self.pos_mode = pos_mode
         self.d_model = d_model
 
         self.spectrum_proj = SpectrumProjection(d_model, n_spectrum)
@@ -137,9 +125,9 @@ class InverseModel(nn.Module):
         else:
             mask = None
 
-        # RoPE positions: spectrum at 0, then material positions
+        # RoPE positions: spectrum at 0, then cumulative depth
         spec_pos = torch.zeros(B, 1, device=tgt_thk.device)
-        mat_pos = _build_positions(tgt_thk, self.pos_mode)
+        mat_pos = tgt_thk.float().cumsum(dim=-1)
         positions = torch.cat([spec_pos, mat_pos], dim=1)  # [B, 1+T]
 
         for layer in self.layers:

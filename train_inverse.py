@@ -35,8 +35,6 @@ def main() -> None:
     parser.add_argument("--run_name",    default="inverse_v1")
     parser.add_argument("--save_dir",    default="./saved_models/inverse")
     parser.add_argument("--arch",        default="A", choices=["A", "B", "C"])
-    parser.add_argument("--pos_mode",    default="cumsum", choices=["raw", "cumsum"],
-                        help="Arch B only: RoPE position mode (raw nm or cumulative depth)")
     parser.add_argument("--num_workers", type=int,   default=4)
     args = parser.parse_args()
 
@@ -51,7 +49,6 @@ def main() -> None:
         d_ff=args.d_ff,
         dropout=args.dropout,
         arch=args.arch,
-        pos_mode=args.pos_mode,
     )
     print("initializing data loaders...")
     train_loader = make_dataloader(
