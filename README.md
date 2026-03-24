@@ -19,10 +19,10 @@ pip install -e .
 ### 2. Generate data
 
 ```bash
-python generate_data.py --n_samples 3000000 --seed 42
+python generate_data.py --n_samples 3000000
 ```
 
-Outputs partitioned Arrow files into `data/train/`, `data/dev/`, `data/val/`. Running again with a different seed auto-increments the partition number (e.g. `part_001.arrow`).
+Outputs partitioned Arrow files into `data/train/`, `data/dev/`, `data/val/`. Running again auto-increments the partition number (e.g. `part_001.arrow`). Each run uses a random seed by default; pass `--seed 42` for reproducibility.
 
 ### 3. Train
 
@@ -164,11 +164,14 @@ The dataloader accepts a directory path and loads all `part_*.arrow` files via `
 ### Generation
 
 ```bash
-# First run
-python generate_data.py --n_samples 3000000 --seed 42
+# First run (random seed by default)
+python generate_data.py --n_samples 3000000
 
 # Add more data (auto-increments partition number)
-python generate_data.py --n_samples 1000000 --seed 99999
+python generate_data.py --n_samples 1000000
+
+# Reproducible run
+python generate_data.py --n_samples 3000000 --seed 42
 ```
 
 ---

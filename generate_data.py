@@ -88,9 +88,12 @@ def main() -> None:
     parser.add_argument("--out_dir",    default="./data")
     parser.add_argument("--nk_dir",     default="./nk")
     parser.add_argument("--workers",    type=int,   default=32)
-    parser.add_argument("--seed",       type=int,   default=17291)
+    parser.add_argument("--seed",       type=int,   default=None,
+                        help="Random seed (default: random). Set for reproducibility.")
     args = parser.parse_args()
 
+    if args.seed is not None:
+        print(f"Seed: {args.seed}")
     rng = random.Random(args.seed)
 
     print(f"Sampling {args.n_samples:,} structures…")
