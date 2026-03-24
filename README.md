@@ -2,7 +2,7 @@
 
 A transformer-based model for **inverse** thin-film optical design: given a target optical spectrum, autoregressively generate a thin-film stack (materials + thicknesses) that produces it.
 
-Built on top of [optogpt](https://github.com/someone/optogpt). The key architectural change is a **dual-sequence representation**: materials and thicknesses are separated into two independent streams rather than fused into a single token. The thickness stream is treated as a **continuous float** (nm), not a categorical token.
+Built on top of [optogpt](https://github.com/taigaoma1997/optogpt). The key architectural change is a **dual-sequence representation**: materials and thicknesses are separated into two independent streams rather than fused into a single token. The thickness stream is treated as a **continuous float** (nm), not a categorical token.
 
 ---
 
