@@ -138,14 +138,18 @@ def train_inverse(
     pad_id: int = 0,
     config: dict | None = None,
     vocab=None,
+    thk_loss_weight: float = 1.0,
 ) -> list[dict]:
     """
     Train the InverseModel.
 
-    Loss = (label-smoothed KL for materials + masked MSE for thicknesses) / ntokens.
+    Loss = (mat_loss + thk_loss_weight * thk_loss) / ntokens.
+
+    Per-token mat_loss and thk_loss are logged each epoch so you can
+    compare their scales and tune thk_loss_weight accordingly.
 
     Returns:
-        loss_history — list of {"epoch", "train", "dev"} dicts
+        loss_history — list of per-epoch dicts including component losses
     """
     run_dir = os.path.join(save_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
@@ -157,22 +161,29 @@ def train_inverse(
     n_train_batches = len(train_loader)
     n_dev_batches   = len(dev_loader)
 
-    def _forward_loss(batch) -> tuple[Tensor, int]:
+    def _forward_loss(batch) -> tuple[Tensor, int, float, float]:
+        """Returns (total_loss, ntokens, mat_loss_sum, thk_loss_sum)."""
         mat_logits, thk_pred = model(
             batch.spectrum, batch.tgt_mat, batch.tgt_thk, batch.tgt_mask
         )
         B, T, V = mat_logits.shape
         mat_loss = mat_criterion(mat_logits.view(B * T, V), batch.tgt_y_mat.view(-1))
         thk_mask = (batch.tgt_y_mat != pad_id).float()
+        # thk_pred is [B, T] for archs A/B/C or [B, T, vocab_size] for arch D
+        if thk_pred.dim() == 3:
+            # Gather the thickness prediction at the ground-truth material index
+            thk_pred = thk_pred.gather(-1, batch.tgt_y_mat.unsqueeze(-1)).squeeze(-1)
         thk_loss = ((thk_pred - batch.tgt_y_thk) ** 2 * thk_mask).sum()
         ntokens  = batch.ntokens_tgt
-        total    = (mat_loss + thk_loss) / max(ntokens, 1)
-        return total, ntokens
+        total    = (mat_loss + thk_loss_weight * thk_loss) / max(ntokens, 1)
+        return total, ntokens, mat_loss.item(), thk_loss.item()
 
     for epoch in range(1, epochs + 1):
         # ── train ──
         model.train()
         train_loss_sum = 0.0
+        train_mat_sum  = 0.0
+        train_thk_sum  = 0.0
         train_tokens   = 0
         epoch_start    = time.perf_counter()
 
@@ -183,7 +194,7 @@ def train_inverse(
             step_start = time.perf_counter()
             batch = _move_inverse_batch(batch, device)
             optimizer.zero_grad()
-            loss, ntokens = _forward_loss(batch)
+            loss, ntokens, mat_l, thk_l = _forward_loss(batch)
             loss.backward()
             gs = _grad_stats(model)
             epoch_grad_norms.append(gs["grad_norm"])
@@ -192,6 +203,8 @@ def train_inverse(
             scheduler.step()
 
             train_loss_sum += loss.item() * ntokens
+            train_mat_sum  += mat_l
+            train_thk_sum  += thk_l
             train_tokens   += ntokens
             step_ms         = (time.perf_counter() - step_start) * 1000
             running_loss    = train_loss_sum / max(train_tokens, 1)
@@ -201,7 +214,7 @@ def train_inverse(
                 f"\rEpoch {epoch}/{epochs}  "
                 f"step {step}/{n_train_batches}  "
                 f"loss={running_loss:.6f}  "
-                f"lr={current_lr:.2e}  "
+                f"lr={current_lr:.4e}  "
                 f"gnorm={gs['grad_norm']:.2f}  "
                 f"gmax={gs['grad_max']:.2f}  "
                 f"step={step_ms:.0f}ms",
@@ -209,19 +222,25 @@ def train_inverse(
             )
 
         train_loss  = train_loss_sum / max(train_tokens, 1)
+        train_mat   = train_mat_sum  / max(train_tokens, 1)
+        train_thk   = train_thk_sum  / max(train_tokens, 1)
         train_time  = time.perf_counter() - epoch_start
 
         # ── eval ──
         model.eval()
         dev_loss_sum = 0.0
+        dev_mat_sum  = 0.0
+        dev_thk_sum  = 0.0
         dev_tokens   = 0
         eval_start   = time.perf_counter()
 
         with torch.no_grad():
             for step, batch in enumerate(dev_loader, 1):
                 batch = _move_inverse_batch(batch, device)
-                loss, ntokens = _forward_loss(batch)
+                loss, ntokens, mat_l, thk_l = _forward_loss(batch)
                 dev_loss_sum += loss.item() * ntokens
+                dev_mat_sum  += mat_l
+                dev_thk_sum  += thk_l
                 dev_tokens   += ntokens
 
                 print(
@@ -231,14 +250,18 @@ def train_inverse(
                 )
 
         dev_loss  = dev_loss_sum / max(dev_tokens, 1)
+        dev_mat   = dev_mat_sum  / max(dev_tokens, 1)
+        dev_thk   = dev_thk_sum  / max(dev_tokens, 1)
         eval_time = time.perf_counter() - eval_start
         current_lr = scheduler.get_last_lr()[0]
 
         print(
             f"\rEpoch {epoch:4d}/{epochs}  "
             f"train={train_loss:.6f}  dev={dev_loss:.6f}  "
+            f"mat={dev_mat:.4f}  thk={dev_thk:.4f}  "
+            f"ratio={dev_thk / (dev_mat + 1e-10):.1f}  "
             f"train={_fmt(train_time)}  eval={_fmt(eval_time)}  "
-            f"lr={current_lr:.2e}"
+            f"lr={current_lr:.4e}"
             + (" *" if dev_loss < best_dev_loss else "  ")
         )
 
@@ -246,6 +269,11 @@ def train_inverse(
             "epoch": epoch,
             "train": train_loss,
             "dev": dev_loss,
+            "train_mat": train_mat,
+            "train_thk": train_thk,
+            "dev_mat": dev_mat,
+            "dev_thk": dev_thk,
+            "thk_loss_weight": thk_loss_weight,
             "grad_norm_mean": sum(epoch_grad_norms) / len(epoch_grad_norms),
             "grad_norm_max": max(epoch_grad_norms),
             "grad_max_mean": sum(epoch_grad_maxs) / len(epoch_grad_maxs),

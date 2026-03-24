@@ -26,6 +26,7 @@ from .common import (
 import optoformer.model.thickness_embedding_model as thickness_embedding_model
 import optoformer.model.thickness_rope_model as thickness_rope_model
 import optoformer.model.prefix_model as prefix_model
+import optoformer.model.prefix_material_thk_model as prefix_material_thk_model
 
 
 # ── Factory functions ──────────────────────────────────────────────────────────
@@ -47,4 +48,7 @@ def make_inverse_model(vocab_size: int, config: dict):
         return thickness_rope_model.InverseModel(**kwargs)
     if arch == "C":
         return prefix_model.InverseModel(**kwargs)
-    raise ValueError(f"Unknown arch: {arch!r}. Expected 'A', 'B', or 'C'.")
+    if arch == "D":
+        kwargs["thk_head_hidden_layers"] = config.get("thk_head_hidden_layers", 2)
+        return prefix_material_thk_model.InverseModel(**kwargs)
+    raise ValueError(f"Unknown arch: {arch!r}. Expected 'A', 'B', 'C', or 'D'.")

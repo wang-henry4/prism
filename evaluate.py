@@ -21,9 +21,10 @@ import torch
 
 from optoformer.constants import N_SPECTRUM
 from optoformer.data.dataset import Vocab
-from optoformer.eval.decode import beam_search_decode, greedy_decode
+from optoformer.eval.decode import beam_search_decode, beam_search_decode_topk, greedy_decode
 from optoformer.eval.metrics import SpectrumMetrics
-from optoformer.eval.visualize import plot_design_comparison, plot_grad_stats, plot_loss_curve, plot_scatter
+from optoformer.eval.targets import HANDCRAFTED_TARGETS
+from optoformer.eval.visualize import plot_beam_candidates, plot_design_comparison, plot_grad_stats, plot_loss_components, plot_loss_curve, plot_scatter
 from optoformer.model.transformer import make_inverse_model
 
 
@@ -159,8 +160,81 @@ def main() -> None:
         save_path=os.path.join(args.plot_dir, "scatter.png"),
     )
 
+    # ── Phase 4: hand-crafted target spectra (top-K beam candidates) ─────
+    if HANDCRAFTED_TARGETS:
+        hc_beam_width = max(args.beam_width, 5)  # always show at least 5 candidates
+        print(f"Evaluating {len(HANDCRAFTED_TARGETS)} hand-crafted targets "
+              f"(top {hc_beam_width} candidates)...")
+
+        hc_spectra = torch.tensor(
+            [t["spectrum"] for t in HANDCRAFTED_TARGETS], dtype=torch.float32
+        )
+
+        # Get all top-K candidates per target
+        all_topk = beam_search_decode_topk(
+            model, hc_spectra, vocab, beam_width=hc_beam_width,
+            length_penalty=args.length_penalty, device=device,
+        )
+
+        # Collect all candidates for batch TMM re-simulation
+        sim_jobs: list[tuple[list[str], list[float]]] = []
+        job_map: list[tuple[int, int]] = []  # (target_idx, candidate_idx)
+
+        for i, candidates in enumerate(all_topk):
+            for j, c in enumerate(candidates):
+                mat_names = [vocab.decode(m) for m in c["mat_ids"]]
+                thk_nm = [max(5.0, t) for t in c["thk_vals"]]
+                c["materials"] = mat_names
+                c["thicknesses"] = thk_nm
+                sim_jobs.append((mat_names, thk_nm))
+                job_map.append((i, j))
+
+        with Pool(
+            processes=args.workers,
+            initializer=_tmm_worker_init,
+            initargs=(args.nk_dir,),
+        ) as pool:
+            sim_results = pool.map(_tmm_simulate_one, sim_jobs)
+
+        # Assign simulated spectra back to candidates
+        for (i, j), sim_spec in zip(job_map, sim_results):
+            all_topk[i][j]["spectrum"] = sim_spec
+
+        hc_dir = os.path.join(args.plot_dir, "handcrafted")
+        os.makedirs(hc_dir, exist_ok=True)
+
+        for i, target in enumerate(HANDCRAFTED_TARGETS):
+            target_spec = np.array(target["spectrum"])
+            candidates = all_topk[i]
+
+            # Compute per-candidate metrics
+            for c in candidates:
+                c_spec = np.array(c["spectrum"])
+                c_metrics = SpectrumMetrics.compute(
+                    c_spec.reshape(1, -1), target_spec.reshape(1, -1)
+                )
+                c["mse"] = c_metrics["mse"]
+                c["mae"] = c_metrics["mae"]
+                c["r2"] = c_metrics["r2"]
+
+            print(f"\n  {target['label']}:")
+            for j, c in enumerate(candidates):
+                print(
+                    f"    #{j+1}  score={c['score']:.2f}  "
+                    f"MSE={c['mse']:.6f}  R²={c['r2']:.4f}  "
+                    f"design={c['materials']}  "
+                    f"thk={[f'{t:.0f}' for t in c['thicknesses']]}"
+                )
+
+            plot_beam_candidates(
+                candidates, target_spec,
+                title=target["label"],
+                save_path=os.path.join(hc_dir, f"{target['name']}.png"),
+            )
+
     if ckpt.get("loss_history"):
         plot_loss_curve(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "loss_curve.png"))
+        plot_loss_components(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "loss_components.png"))
         plot_grad_stats(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "grad_stats.png"))
 
     with open(os.path.join(args.plot_dir, "metrics.json"), "w") as f:
