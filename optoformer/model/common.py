@@ -177,18 +177,6 @@ class DecoderLayer(nn.Module):
 
 # ── Spectrum I/O heads ─────────────────────────────────────────────────────────
 
-class SpectrumHead(nn.Module):
-    """CLS token hidden state → 142-float spectrum."""
-
-    def __init__(self, d_model: int, n_spectrum: int = N_SPECTRUM):
-        super().__init__()
-        self.linear = nn.Linear(d_model, n_spectrum)
-
-    def forward(self, cls_hidden: Tensor) -> Tensor:
-        """cls_hidden: [B, d_model] → [B, n_spectrum]"""
-        return self.linear(cls_hidden)
-
-
 class SpectrumProjection(nn.Module):
     """142-float spectrum → memory [B, 1, d_model] for cross-attention."""
 

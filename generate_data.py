@@ -2,15 +2,17 @@
 Generate thin-film training data via TMM simulation.
 
 Usage:
-    python generate_data.py \\
-        --n_samples 100000 --min_layers 1 --max_layers 10 \\
-        --dev_split 0.1 --val_split 0.1 --out_dir ./data --nk_dir ./nk \\
-        --workers 8 --seed 42
+    # First generation — creates part_000.arrow in each split folder
+    python generate_data.py --n_samples 3000000
 
-Outputs data/train.arrow, data/dev.arrow, and data/val.arrow (Apache Arrow / Feather format).
+    # Add more data — auto-detects next partition number
+    python generate_data.py --n_samples 1000000 --seed 99999
+
+Outputs partitioned Arrow files into data/train/, data/dev/, data/val/.
 """
 
 import argparse
+import glob
 import os
 import random
 
@@ -65,6 +67,15 @@ def _write_arrow(
     feather.write_feather(table, path, compression="uncompressed")
 
 
+def _next_partition_index(split_dir: str) -> int:
+    """Find the next available partition index in a split directory."""
+    existing = glob.glob(os.path.join(split_dir, "part_*.arrow"))
+    if not existing:
+        return 0
+    indices = [int(os.path.basename(f).split("_")[1].split(".")[0]) for f in existing]
+    return max(indices) + 1
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -109,33 +120,26 @@ def main() -> None:
     n_val   = int(args.n_samples * args.val_split)
     n_train = args.n_samples - n_dev - n_val
 
-    os.makedirs(args.out_dir, exist_ok=True)
-    train_path = os.path.join(args.out_dir, "train.arrow")
-    dev_path   = os.path.join(args.out_dir, "dev.arrow")
-    val_path   = os.path.join(args.out_dir, "val.arrow")
+    splits = {
+        "train": (0, n_train),
+        "dev":   (n_train, n_train + n_dev),
+        "val":   (n_train + n_dev, args.n_samples),
+    }
 
-    _write_arrow(
-        train_path,
-        list(materials_list[:n_train]),
-        list(thicknesses_list[:n_train]),
-        spectra[:n_train],
-    )
-    _write_arrow(
-        dev_path,
-        list(materials_list[n_train:n_train + n_dev]),
-        list(thicknesses_list[n_train:n_train + n_dev]),
-        spectra[n_train:n_train + n_dev],
-    )
-    _write_arrow(
-        val_path,
-        list(materials_list[n_train + n_dev:]),
-        list(thicknesses_list[n_train + n_dev:]),
-        spectra[n_train + n_dev:],
-    )
+    for split_name, (start, end) in splits.items():
+        split_dir = os.path.join(args.out_dir, split_name)
+        os.makedirs(split_dir, exist_ok=True)
+        part_idx = _next_partition_index(split_dir)
+        part_path = os.path.join(split_dir, f"part_{part_idx:03d}.arrow")
 
-    print(f"train: {n_train:,} samples → {train_path}")
-    print(f"dev:   {n_dev:,} samples → {dev_path}")
-    print(f"val:   {n_val:,} samples → {val_path}")
+        _write_arrow(
+            part_path,
+            list(materials_list[start:end]),
+            list(thicknesses_list[start:end]),
+            spectra[start:end],
+        )
+        n_split = end - start
+        print(f"{split_name}: {n_split:,} samples → {part_path}")
 
 
 if __name__ == "__main__":

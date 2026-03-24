@@ -22,7 +22,6 @@ from optoformer.constants import N_SPECTRUM
 
 from .common import (
     EncoderLayer,
-    SpectrumHead,
     SpectrumProjection,
 )
 
@@ -44,76 +43,6 @@ class MaterialEmbedding(nn.Module):
 
     def forward(self, mat_ids: Tensor, thk_vals: Tensor) -> Tensor:
         return self.mat_embed(mat_ids) * self.scale
-
-
-class ForwardModel(nn.Module):
-    """
-    Encoder-only transformer: thin-film structure → optical spectrum.
-
-    Identical to the thickness_rope_model ForwardModel — included here for
-    completeness so that each architecture module is self-contained.
-    """
-
-    def __init__(
-        self,
-        vocab_size: int,
-        d_model: int = 512,
-        n_layers: int = 6,
-        n_heads: int = 8,
-        d_ff: int = 2048,
-        dropout: float = 0.1,
-        n_spectrum: int = N_SPECTRUM,
-        pos_mode: str = "cumsum",
-    ):
-        super().__init__()
-        assert pos_mode in ("raw", "cumsum"), f"Unknown pos_mode: {pos_mode!r}"
-        self.d_model = d_model
-        self.pos_mode = pos_mode
-
-        self.embedding = MaterialEmbedding(vocab_size, d_model)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-        self.layers = nn.ModuleList(
-            [EncoderLayer(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
-        )
-        self.norm = nn.LayerNorm(d_model)
-        self.spectrum_head = SpectrumHead(d_model, n_spectrum)
-
-        self._init_weights()
-
-    def _init_weights(self):
-        for name, p in self.named_parameters():
-            if "cls_token" in name:
-                nn.init.zeros_(p)
-            elif p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
-    def forward(
-        self,
-        mat_ids: Tensor,
-        thk_vals: Tensor,
-        src_mask: Tensor | None = None,
-    ) -> Tensor:
-        B, S = mat_ids.shape
-
-        x = self.embedding(mat_ids, thk_vals)
-        cls = self.cls_token.expand(B, -1, -1)
-        x = torch.cat([cls, x], dim=1)
-
-        if src_mask is not None:
-            cls_mask = torch.ones(B, 1, 1, dtype=torch.bool, device=mat_ids.device)
-            mask = torch.cat([cls_mask, src_mask], dim=2)
-        else:
-            mask = None
-
-        cls_pos = torch.zeros(B, 1, device=thk_vals.device)
-        layer_pos = _build_positions(thk_vals, self.pos_mode)
-        positions = torch.cat([cls_pos, layer_pos], dim=1)
-
-        for layer in self.layers:
-            x = layer(x, mask, positions)
-
-        x = self.norm(x)
-        return self.spectrum_head(x[:, 0, :])
 
 
 class InverseModel(nn.Module):

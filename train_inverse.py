@@ -3,7 +3,7 @@ Train the InverseModel (target spectrum → thin-film structure).
 
 Usage:
     python train_inverse.py \\
-        --train_path ./data/train.arrow --dev_path ./data/dev.arrow \\
+        --train_path ./data/train --dev_path ./data/dev \\
         --d_model 512 --n_layers 6 --n_heads 8 \\
         --epochs 200 --batch_size 256 --run_name inverse_v1
 """
@@ -19,8 +19,8 @@ from optoformer.training.train import make_optimizer_and_scheduler, train_invers
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train InverseModel")
-    parser.add_argument("--train_path",  default="./data/train.arrow")
-    parser.add_argument("--dev_path",    default="./data/dev.arrow")
+    parser.add_argument("--train_path",  default="./data/train")
+    parser.add_argument("--dev_path",    default="./data/dev")
     parser.add_argument("--d_model",     type=int,   default=256)
     parser.add_argument("--n_layers",    type=int,   default=4)
     parser.add_argument("--n_heads",     type=int,   default=4) # d_model/n_heads should be at least 64
@@ -28,9 +28,9 @@ def main() -> None:
     parser.add_argument("--dropout",     type=float, default=0.1)
     parser.add_argument("--peak_lr",      type=float, default=1e-4)
     parser.add_argument("--min_lr",       type=float, default=1e-6)
-    parser.add_argument("--warmup_steps", type=int,   default=3000)
+    parser.add_argument("--warmup_steps", type=int,   default=5000)
     parser.add_argument("--weight_decay", type=float, default=0.01)
-    parser.add_argument("--epochs",      type=int,   default=200)
+    parser.add_argument("--epochs",      type=int,   default=300)
     parser.add_argument("--batch_size",  type=int,   default=1024)
     parser.add_argument("--run_name",    default="inverse_v1")
     parser.add_argument("--save_dir",    default="./saved_models/inverse")
@@ -53,14 +53,15 @@ def main() -> None:
         arch=args.arch,
         pos_mode=args.pos_mode,
     )
-
+    print("initializing data loaders...")
     train_loader = make_dataloader(
         args.train_path, vocab, args.batch_size, shuffle=True, num_workers=args.num_workers
     )
     dev_loader = make_dataloader(
         args.dev_path, vocab, args.batch_size, shuffle=False, num_workers=args.num_workers
     )
-
+    print("data loaders ready")
+    print("initializing model...")
     model = make_inverse_model(len(vocab), config).to(device)
     print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
 

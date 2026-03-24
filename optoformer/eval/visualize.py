@@ -59,6 +59,51 @@ def plot_loss_curve(loss_history: list[dict], save_path: str) -> None:
     plt.close(fig)
 
 
+def plot_grad_stats(loss_history: list[dict], save_path: str) -> None:
+    """Gradient norm and max plots over training epochs."""
+    if not loss_history or "grad_norm_mean" not in loss_history[0]:
+        return
+
+    epochs = [h["epoch"] for h in loss_history]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # Grad norm
+    ax1.plot(epochs, [h["grad_norm_mean"] for h in loss_history],
+             label="Mean", color="steelblue")
+    ax1.fill_between(
+        epochs,
+        [h["grad_norm_mean"] for h in loss_history],
+        [h["grad_norm_max"] for h in loss_history],
+        alpha=0.2, color="steelblue", label="Max",
+    )
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Gradient L2 Norm")
+    ax1.set_yscale("log")
+    ax1.legend()
+    ax1.set_title("Gradient Norm")
+
+    # Grad max
+    ax2.plot(epochs, [h["grad_max_mean"] for h in loss_history],
+             label="Mean", color="tomato")
+    ax2.fill_between(
+        epochs,
+        [h["grad_max_mean"] for h in loss_history],
+        [h["grad_max_max"] for h in loss_history],
+        alpha=0.2, color="tomato", label="Max",
+    )
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Max |grad|")
+    ax2.set_yscale("log")
+    ax2.legend()
+    ax2.set_title("Max Absolute Gradient")
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+    plt.savefig(save_path, dpi=100)
+    plt.close(fig)
+
+
 def plot_design_comparison(
     pred_spectrum: np.ndarray,
     target_spectrum: np.ndarray,
@@ -87,7 +132,7 @@ def plot_design_comparison(
     # ── Top: film stack comparison ────────────────────────────────────────────
     ax_stack = fig.add_subplot(gs[0, :])
 
-    def _draw_stack(ax, materials, thicknesses, y_center, bar_height, label):
+    def _draw_stack(ax, materials, thicknesses, y_center, bar_height):
         x = 0.0
         for mat, thk in zip(materials, thicknesses):
             ax.barh(y_center, thk, left=x, height=bar_height,
@@ -96,10 +141,9 @@ def plot_design_comparison(
                 ax.text(x + thk / 2, y_center, f"{mat}\n{thk:.0f}",
                         ha="center", va="center", fontsize=7)
             x += thk
-        ax.text(-5, y_center, label, ha="right", va="center", fontsize=9, fontweight="bold")
 
-    _draw_stack(ax_stack, target_materials, target_thicknesses, 1.0, 0.35, "Target")
-    _draw_stack(ax_stack, pred_materials, pred_thicknesses, 0.0, 0.35, "Predicted")
+    _draw_stack(ax_stack, target_materials, target_thicknesses, 1.0, 0.35)
+    _draw_stack(ax_stack, pred_materials, pred_thicknesses, 0.0, 0.35)
 
     ax_stack.set_xlabel("Cumulative thickness (nm)")
     ax_stack.set_yticks([0.0, 1.0])

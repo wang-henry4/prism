@@ -1,6 +1,6 @@
 """
 Training utilities: cosine-annealing LR schedule, LabelSmoothing loss, and
-train_forward / train_inverse loops with checkpoint saving.
+train_inverse loop with checkpoint saving.
 """
 
 import os
@@ -100,12 +100,16 @@ def _fmt(seconds: float) -> str:
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
-def _move_forward_batch(batch, device):
-    batch.src_mat  = batch.src_mat.to(device)
-    batch.src_thk  = batch.src_thk.to(device)
-    batch.spectrum = batch.spectrum.to(device)
-    batch.src_mask = batch.src_mask.to(device)
-    return batch
+def _grad_stats(model: nn.Module) -> dict[str, float]:
+    """Compute gradient statistics across all model parameters."""
+    grads = [p.grad.detach() for p in model.parameters() if p.grad is not None]
+    if not grads:
+        return {"grad_norm": 0.0, "grad_max": 0.0, "grad_zero_pct": 100.0}
+    all_grads = torch.cat([g.flatten() for g in grads])
+    total_norm = torch.norm(all_grads, 2).item()
+    max_abs = all_grads.abs().max().item()
+    zero_pct = (all_grads == 0).float().mean().item() * 100
+    return {"grad_norm": total_norm, "grad_max": max_abs, "grad_zero_pct": zero_pct}
 
 
 def _move_inverse_batch(batch, device):
@@ -119,126 +123,6 @@ def _move_inverse_batch(batch, device):
 
 
 # ── Training loops ─────────────────────────────────────────────────────────────
-
-def train_forward(
-    model,
-    train_loader,
-    dev_loader,
-    optimizer: AdamW,
-    scheduler,
-    epochs: int,
-    device: torch.device,
-    save_dir: str,
-    run_name: str,
-    config: dict | None = None,
-    vocab=None,
-) -> list[dict]:
-    """
-    Train the ForwardModel.
-
-    Checkpoints saved to save_dir/{run_name}/best.pt and latest.pt.
-    Each checkpoint contains: model state dict, optimizer state, scheduler state,
-    epoch, loss_history, config, vocab (word2id dict).
-
-    Returns:
-        loss_history — list of {"epoch", "train", "dev"} dicts
-    """
-    run_dir = os.path.join(save_dir, run_name)
-    os.makedirs(run_dir, exist_ok=True)
-    criterion = nn.MSELoss()
-    loss_history: list[dict] = []
-    best_dev_loss = float("inf")
-
-    vocab_dict = vocab.word2id if vocab is not None else {}
-    n_train_batches = len(train_loader)
-    n_dev_batches   = len(dev_loader)
-
-    for epoch in range(1, epochs + 1):
-        # ── train ──
-        model.train()
-        train_loss_sum = 0.0
-        n_train = 0
-        epoch_start = time.perf_counter()
-
-        for step, batch in enumerate(train_loader, 1):
-            step_start = time.perf_counter()
-            batch = _move_forward_batch(batch, device)
-            optimizer.zero_grad()
-            pred = model(batch.src_mat, batch.src_thk, batch.src_mask)
-            loss = criterion(pred, batch.spectrum)
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-
-            batch_size     = batch.src_mat.size(0)
-            train_loss_sum += loss.item() * batch_size
-            n_train        += batch_size
-            step_ms        = (time.perf_counter() - step_start) * 1000
-            running_loss   = train_loss_sum / n_train
-            current_lr     = scheduler.get_last_lr()[0]
-
-            print(
-                f"\rEpoch {epoch}/{epochs}  "
-                f"step {step}/{n_train_batches}  "
-                f"loss={running_loss:.6f}  "
-                f"lr={current_lr:.2e}  "
-                f"step={step_ms:.0f}ms",
-                end="", flush=True,
-            )
-
-        train_loss  = train_loss_sum / max(n_train, 1)
-        train_time  = time.perf_counter() - epoch_start
-
-        # ── eval ──
-        model.eval()
-        dev_loss_sum = 0.0
-        n_dev = 0
-        eval_start = time.perf_counter()
-
-        with torch.no_grad():
-            for step, batch in enumerate(dev_loader, 1):
-                batch = _move_forward_batch(batch, device)
-                pred  = model(batch.src_mat, batch.src_thk, batch.src_mask)
-                loss  = criterion(pred, batch.spectrum)
-                dev_loss_sum += loss.item() * batch.src_mat.size(0)
-                n_dev        += batch.src_mat.size(0)
-
-                print(
-                    f"\rEpoch {epoch}/{epochs}  "
-                    f"eval {step}/{n_dev_batches}",
-                    end="", flush=True,
-                )
-
-        dev_loss  = dev_loss_sum / max(n_dev, 1)
-        eval_time = time.perf_counter() - eval_start
-        current_lr = scheduler.get_last_lr()[0]
-
-        print(
-            f"\rEpoch {epoch:4d}/{epochs}  "
-            f"train={train_loss:.6f}  dev={dev_loss:.6f}  "
-            f"train={_fmt(train_time)}  eval={_fmt(eval_time)}  "
-            f"lr={current_lr:.2e}"
-            + (" *" if dev_loss < best_dev_loss else "  ")
-        )
-
-        loss_history.append({"epoch": epoch, "train": train_loss, "dev": dev_loss})
-
-        ckpt = {
-            "epoch": epoch,
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "scheduler_state": scheduler.state_dict(),
-            "loss_history": loss_history,
-            "config": config or {},
-            "vocab": vocab_dict,
-        }
-        torch.save(ckpt, os.path.join(run_dir, "latest.pt"))
-        if dev_loss < best_dev_loss:
-            best_dev_loss = dev_loss
-            torch.save(ckpt, os.path.join(run_dir, "best.pt"))
-
-    return loss_history
-
 
 def train_inverse(
     model,
@@ -292,12 +176,18 @@ def train_inverse(
         train_tokens   = 0
         epoch_start    = time.perf_counter()
 
+        epoch_grad_norms: list[float] = []
+        epoch_grad_maxs: list[float] = []
+
         for step, batch in enumerate(train_loader, 1):
             step_start = time.perf_counter()
             batch = _move_inverse_batch(batch, device)
             optimizer.zero_grad()
             loss, ntokens = _forward_loss(batch)
             loss.backward()
+            gs = _grad_stats(model)
+            epoch_grad_norms.append(gs["grad_norm"])
+            epoch_grad_maxs.append(gs["grad_max"])
             optimizer.step()
             scheduler.step()
 
@@ -312,6 +202,8 @@ def train_inverse(
                 f"step {step}/{n_train_batches}  "
                 f"loss={running_loss:.6f}  "
                 f"lr={current_lr:.2e}  "
+                f"gnorm={gs['grad_norm']:.2f}  "
+                f"gmax={gs['grad_max']:.2f}  "
                 f"step={step_ms:.0f}ms",
                 end="", flush=True,
             )
@@ -350,7 +242,15 @@ def train_inverse(
             + (" *" if dev_loss < best_dev_loss else "  ")
         )
 
-        loss_history.append({"epoch": epoch, "train": train_loss, "dev": dev_loss})
+        loss_history.append({
+            "epoch": epoch,
+            "train": train_loss,
+            "dev": dev_loss,
+            "grad_norm_mean": sum(epoch_grad_norms) / len(epoch_grad_norms),
+            "grad_norm_max": max(epoch_grad_norms),
+            "grad_max_mean": sum(epoch_grad_maxs) / len(epoch_grad_maxs),
+            "grad_max_max": max(epoch_grad_maxs),
+        })
 
         ckpt = {
             "epoch": epoch,

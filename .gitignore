@@ -11,7 +11,7 @@ build/
 venv/
 
 # Data & models (large files)
-data/*.arrow
+data/**/*.arrow
 saved_models/
 
 # Plots

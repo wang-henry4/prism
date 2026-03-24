@@ -11,13 +11,15 @@ Sequence encoding:
     thk_vals: [0.0, thk_1,   ..., thk_N,   0.0]   (BOS/EOS get thickness 0)
 """
 
+import glob
+import os
 from functools import partial
 
 import pyarrow.feather as feather
 import torch
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from optoformer.constants import MATERIALS
 
@@ -64,32 +66,28 @@ class Vocab:
 
 
 class ThinFilmDataset(Dataset):
-    """PyTorch Dataset wrapping a train.arrow or dev.arrow file."""
+    """PyTorch Dataset wrapping a train.arrow or dev.arrow file (lazy-loaded)."""
 
     def __init__(self, path: str, vocab: Vocab):
-        table = feather.read_table(path, memory_map=True)
-
-        materials_col   = table["materials"].to_pylist()
-        thicknesses_col = table["thicknesses"].to_pylist()
-        spectra_col     = table["spectra"].to_pylist()
-
+        self.table = feather.read_table(path, memory_map=True)
         self.vocab = vocab
-        self.mat_seqs: list[list[int]] = [
-            vocab.encode_sequence(m) for m in materials_col
-        ]
-        self.thk_seqs: list[list[float]] = [
-            [0.0] + list(t) + [0.0] for t in thicknesses_col
-        ]
-        self.spectra: list[list[float]] = spectra_col
 
     def __len__(self) -> int:
-        return len(self.spectra)
+        return len(self.table)
 
     def __getitem__(self, idx: int):
+        row = self.table.slice(idx, 1)
+        materials   = row["materials"][0].as_py()
+        thicknesses = row["thicknesses"][0].as_py()
+        spectrum    = row["spectra"][0].as_py()
+
+        mat_ids  = self.vocab.encode_sequence(materials)
+        thk_vals = [0.0] + list(thicknesses) + [0.0]
+
         return (
-            torch.tensor(self.mat_seqs[idx], dtype=torch.long),
-            torch.tensor(self.thk_seqs[idx], dtype=torch.float32),
-            torch.tensor(self.spectra[idx],  dtype=torch.float32),
+            torch.tensor(mat_ids,  dtype=torch.long),
+            torch.tensor(thk_vals, dtype=torch.float32),
+            torch.tensor(spectrum, dtype=torch.float32),
         )
 
 
@@ -146,8 +144,14 @@ def make_dataloader(
     shuffle: bool = True,
     num_workers: int = 0,
 ) -> DataLoader:
-    """Build a DataLoader from an Arrow data file."""
-    dataset = ThinFilmDataset(path, vocab)
+    """Build a DataLoader from an Arrow file or a directory of partitions."""
+    if os.path.isdir(path):
+        parts = sorted(glob.glob(os.path.join(path, "part_*.arrow")))
+        if not parts:
+            raise FileNotFoundError(f"No part_*.arrow files found in {path}")
+        dataset = ConcatDataset([ThinFilmDataset(p, vocab) for p in parts])
+    else:
+        dataset = ThinFilmDataset(path, vocab)
     return DataLoader(
         dataset,
         batch_size=batch_size,
