@@ -30,7 +30,7 @@ Outputs partitioned Arrow files into `data/train/`, `data/dev/`, `data/val/`. Ru
 python train_inverse.py \
     --train_path ./data/train --dev_path ./data/dev \
     --d_model 256 --n_layers 4 --n_heads 4 \
-    --epochs 200 --batch_size 1024 --run_name inverse_v1
+    --epochs 30 --batch_size 1024 --run_name inverse_v1
 ```
 
 Checkpoints are saved to `saved_models/inverse/{run_name}/` as `best.pt` (lowest dev loss) and `latest.pt` (every epoch).
@@ -46,7 +46,7 @@ python evaluate.py \
     --plot_dir ./plots/inverse_eval
 ```
 
-Evaluation decodes structures (greedy or beam search), re-simulates them via TMM, and compares against target spectra. Writes `metrics.json`, scatter plot, loss curve, gradient stats, and design comparison plots.
+Evaluation decodes structures (greedy or beam search), re-simulates them via TMM, and compares against target spectra. Also evaluates hand-crafted target spectra with top-K beam candidates. Writes `metrics.json`, scatter plot, loss curves, gradient stats, design comparisons, and beam candidate plots.
 
 ---
 
@@ -62,31 +62,45 @@ Evaluation decodes structures (greedy or beam search), re-simulates them via TMM
 
 ---
 
-## Model Architecture
+## Model Architecture: Augmented Regression RoPE Thickness Encoding
 
-### InverseModel (spectrum -> structure)
+The active model (`prefix_material_thk_model.py`) uses:
+
+- **Spectrum prefix**: target spectrum projected to a single `[B, 1, d_model]` token, prepended to the decoder sequence. The decoder uses causal **self-attention** only (no cross-attention).
+- **Material embedding**: standard learned embedding (no thickness fusion).
+- **RoPE with cumulative depth**: thickness values are used directly as RoPE positions via `cumsum(thk_vals)`, encoding physical depth in nm rather than sequential position.
+- **Per-material thickness head**: a multi-layer MLP that outputs `[B, T, vocab_size]` — one thickness prediction per material. This enables beam search to jointly score (material, thickness) pairs without committing to a material first.
+- **Material head**: linear projection to `[B, T, vocab_size]` logits.
 
 ```
-spectrum [B, 142] -> SpectrumProjection -> memory [B, 1, d_model]
-                                                 |
-mat_ids  [B, T] -+                               |
-                  +- Embedding -> Decoder (cross-attn to memory) -> hidden [B, T, d_model]
-thk_vals [B, T] -+                                                        |
-                                                              +-----------+-----------+
-                                                              |                       |
-                                                          mat_head                thk_head
-                                                    log P(mat) [B, T, V]     thk_preds [B, T]
+spectrum [B, 142] -> SpectrumProjection -> [SPEC] prefix token
+                                                |
+mat_ids  [B, T] -> MaterialEmbedding -> [tok1, tok2, ...]
+                                                |
+                         concat: [SPEC, tok1, tok2, ...] — causal self-attention
+                         RoPE positions: [0, cumsum(thk)]
+                                                |
+                                         Encoder layers × N
+                                                |
+                                    hidden [B, T, d_model]  (prefix stripped)
+                                                |
+                                   +------------+------------+
+                                   |                         |
+                               mat_head                  thk_head (MLP)
+                         log P(mat) [B, T, V]      thk_preds [B, T, V]
 ```
 
-### Three architectural variants
+### Other model variants (archived)
 
-| Variant | Thickness handling | RoPE positions |
+These earlier designs are preserved in the codebase but are not used by the training or evaluation scripts:
+
+| Variant | Module | Description |
 |---|---|---|
-| **A** | Linear projection added to material embedding | Sequential `[0, 1, 2, ...]` |
-| **B** | Not embedded; cumulative depth used as RoPE positions | Cumulative depth (nm) |
-| **C** | Same as B, but spectrum is a prefix token with causal self-attention (no cross-attention) | Cumulative depth (nm) |
+| Thickness Embedding | `thickness_embedding_model.py` | Thickness projected as learned linear embedding added to material embedding; RoPE uses sequential positions |
+| RoPE Thickness Encoding | `thickness_rope_model.py` | Thickness used directly as RoPE positions (cumulative depth); cross-attention to spectrum memory |
+| Prefix RoPE Thickness Encoding | `prefix_model.py` | Same as RoPE Thickness Encoding but spectrum is a prefix token with causal self-attention; single scalar thickness head |
 
-### Shared building blocks
+### Shared building blocks (`common.py`)
 
 | Component | Detail |
 |---|---|
@@ -104,11 +118,13 @@ Weight initialisation: Xavier uniform for all weight matrices (dim > 1).
 
 Sum of two terms, normalised by non-padding token count:
 - **Material head**: label-smoothed KL divergence (`smoothing=0.1`)
-- **Thickness head**: masked MSE (nm)
+- **Thickness head**: masked MSE (nm), scaled by `--thk_loss_weight` (default `0.001`) to balance against material KL
+
+Per-token component losses (`mat`, `thk`) and their ratio are logged each epoch to help tune the weight.
 
 ### Learning rate schedule
 
-Cosine annealing with linear warmup: `peak_lr=1e-4`, `warmup_steps=3000`, `min_lr=1e-6`.
+Cosine annealing with linear warmup: `peak_lr=3e-4`, `warmup_steps=4000`, `min_lr=3e-7`.
 
 ### Gradient monitoring
 
@@ -125,6 +141,12 @@ Both grad L2 norm and max absolute gradient are logged per step and saved as epo
 | Greedy | `--beam_width 1` | Argmax at each step |
 | Beam search | `--beam_width 5` (default) | Length-normalised beam search with configurable `--length_penalty` (default 0.3) |
 
+The per-material thickness head enables beam search to score each candidate material with its own thickness prediction, rather than using a single shared thickness.
+
+### Hand-crafted targets
+
+A set of hand-crafted target spectra (e.g. shortpass filters) are always evaluated during `evaluate.py`. For each target, the top-K beam candidates are decoded, TMM re-simulated, and plotted showing all candidates' film stacks and spectra.
+
 ### Pipeline
 
 1. **Decode**: generate predicted structures from target spectra
@@ -136,8 +158,10 @@ Both grad L2 norm and max absolute gradient are logged per step and saved as epo
 - `metrics.json` - MSE, MAE, R^2
 - `scatter.png` - predicted vs target scatter plot
 - `loss_curve.png` - train/dev loss curves
+- `loss_components.png` - per-token mat vs thk loss and their ratio
 - `grad_stats.png` - gradient norm/max over training
 - `design_*.png` - film stack + spectrum comparisons for random samples
+- `handcrafted/*.png` - top-K beam candidates for hand-crafted targets
 
 ---
 
@@ -186,16 +210,18 @@ optoformer/
       dataset.py           # Vocab, Batch, ThinFilmDataset, make_dataloader
     model/
       common.py            # Shared building blocks (attention, FFN, RoPE)
-      transformer.py       # make_inverse_model factory function
-      thickness_embedding_model.py  # Architecture A
-      thickness_rope_model.py       # Architecture B
-      prefix_model.py               # Architecture C
+      prefix_material_thk_model.py  # Augmented Regression RoPE Thickness Encoding (active)
+      prefix_model.py               # Prefix RoPE Thickness Encoding (archived)
+      thickness_rope_model.py       # RoPE Thickness Encoding (archived)
+      thickness_embedding_model.py  # Thickness Embedding (archived)
+      transformer.py       # Re-exports InverseModel from active architecture
     training/
       train.py             # LR schedule, LabelSmoothing, train_inverse
     eval/
       metrics.py           # SpectrumMetrics (MSE, MAE, R^2)
-      decode.py            # Greedy + beam search decoding
+      decode.py            # Greedy + beam search decoding (incl. top-K)
       visualize.py         # Matplotlib figure helpers
+      targets.py           # Hand-crafted target spectra registry
   generate_data.py         # CLI: sample + simulate training data
   train_inverse.py         # CLI: train InverseModel
   evaluate.py              # CLI: evaluate a checkpoint

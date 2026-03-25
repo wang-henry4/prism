@@ -1,18 +1,15 @@
 """
 Transformer models for thin-film optical design (inverse only).
 
-Implementation is split across:
-  common.py                  – shared building blocks
-  thickness_embedding_model  – thickness fused into the token embedding; RoPE uses sequential positions
-  thickness_rope_model       – thickness used directly as RoPE positions (physical nm depth)
+Model variants (kept as separate modules):
+  thickness_embedding_model  – "Thickness Embedding": thickness fused into token embedding; sequential RoPE
+  thickness_rope_model       – "RoPE Thickness Encoding": thickness as RoPE positions (physical nm depth)
+  prefix_model               – "Prefix RoPE Thickness Encoding": spectrum prefix + causal self-attention + RoPE depth
+  prefix_material_thk_model  – "Augmented Regression RoPE Thickness Encoding": same as prefix, but thickness head
+                                outputs per-material predictions via multi-layer MLP
 
-Factory function dispatches on config["arch"]:
-  "A" → thickness_embedding_model
-  "B" → thickness_rope_model
-  "C" → prefix_model
+Shared building blocks live in common.py.
 """
-
-from optoformer.constants import N_SPECTRUM
 
 from .common import (
     apply_rope,
@@ -23,32 +20,4 @@ from .common import (
     SpectrumProjection,
 )
 
-import optoformer.model.thickness_embedding_model as thickness_embedding_model
-import optoformer.model.thickness_rope_model as thickness_rope_model
-import optoformer.model.prefix_model as prefix_model
-import optoformer.model.prefix_material_thk_model as prefix_material_thk_model
-
-
-# ── Factory functions ──────────────────────────────────────────────────────────
-
-def make_inverse_model(vocab_size: int, config: dict):
-    arch = config.get("arch", "A")
-    kwargs = dict(
-        vocab_size = vocab_size,
-        d_model    = config.get("d_model", 512),
-        n_layers   = config.get("n_layers", 6),
-        n_heads    = config.get("n_heads", 8),
-        d_ff       = config.get("d_ff", 2048),
-        dropout    = config.get("dropout", 0.1),
-        n_spectrum = config.get("n_spectrum", N_SPECTRUM),
-    )
-    if arch == "A":
-        return thickness_embedding_model.InverseModel(**kwargs)
-    if arch == "B":
-        return thickness_rope_model.InverseModel(**kwargs)
-    if arch == "C":
-        return prefix_model.InverseModel(**kwargs)
-    if arch == "D":
-        kwargs["thk_head_hidden_layers"] = config.get("thk_head_hidden_layers", 2)
-        return prefix_material_thk_model.InverseModel(**kwargs)
-    raise ValueError(f"Unknown arch: {arch!r}. Expected 'A', 'B', 'C', or 'D'.")
+from .prefix_material_thk_model import InverseModel

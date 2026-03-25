@@ -20,19 +20,67 @@ def _make_spectrum(reflectance: np.ndarray, transmittance: np.ndarray) -> list[f
     return list(np.concatenate([reflectance, transmittance]))
 
 
-def _shortpass_780() -> dict:
-    """
-    Shortpass filter with cutoff at 780 nm.
-    R=0, T=1 for 400-770 nm; R=1, T=0 for 780-1100 nm.
-    """
+def _wl_idx(wl_nm: float) -> int:
+    """Convert a wavelength in nm to the nearest grid index."""
+    return int(round((wl_nm - WL_NM[0]) / (WL_NM[1] - WL_NM[0])))
+
+
+# ── Filter builders ──────────────────────────────────────────────────────────
+
+def shortpass(cutoff_nm: float) -> dict:
+    """Shortpass filter: transmits below cutoff, reflects above."""
+    idx = _wl_idx(cutoff_nm)
     r = np.zeros(N_WL)
     t = np.ones(N_WL)
-    cutoff_idx = int((780 - WL_NM[0]) / (WL_NM[1] - WL_NM[0]))  # index 38
-    r[cutoff_idx:] = 1.0
-    t[cutoff_idx:] = 0.0
+    r[idx:] = 1.0
+    t[idx:] = 0.0
     return {
-        "name": "shortpass_780",
-        "label": "Shortpass 780 nm",
+        "name": f"shortpass_{int(cutoff_nm)}",
+        "label": f"Shortpass {int(cutoff_nm)} nm",
+        "spectrum": _make_spectrum(r, t),
+    }
+
+
+def longpass(cutoff_nm: float) -> dict:
+    """Longpass filter: reflects below cutoff, transmits above."""
+    idx = _wl_idx(cutoff_nm)
+    r = np.ones(N_WL)
+    t = np.zeros(N_WL)
+    r[idx:] = 0.0
+    t[idx:] = 1.0
+    return {
+        "name": f"longpass_{int(cutoff_nm)}",
+        "label": f"Longpass {int(cutoff_nm)} nm",
+        "spectrum": _make_spectrum(r, t),
+    }
+
+
+def bandpass(lo_nm: float, hi_nm: float) -> dict:
+    """Bandpass filter: transmits between lo and hi, reflects outside."""
+    lo_idx = _wl_idx(lo_nm)
+    hi_idx = _wl_idx(hi_nm)
+    r = np.ones(N_WL)
+    t = np.zeros(N_WL)
+    r[lo_idx:hi_idx] = 0.0
+    t[lo_idx:hi_idx] = 1.0
+    return {
+        "name": f"bandpass_{int(lo_nm)}_{int(hi_nm)}",
+        "label": f"Bandpass {int(lo_nm)}–{int(hi_nm)} nm",
+        "spectrum": _make_spectrum(r, t),
+    }
+
+
+def bandstop(lo_nm: float, hi_nm: float) -> dict:
+    """Bandstop (notch) filter: reflects between lo and hi, transmits outside."""
+    lo_idx = _wl_idx(lo_nm)
+    hi_idx = _wl_idx(hi_nm)
+    r = np.zeros(N_WL)
+    t = np.ones(N_WL)
+    r[lo_idx:hi_idx] = 1.0
+    t[lo_idx:hi_idx] = 0.0
+    return {
+        "name": f"bandstop_{int(lo_nm)}_{int(hi_nm)}",
+        "label": f"Bandstop {int(lo_nm)}–{int(hi_nm)} nm",
         "spectrum": _make_spectrum(r, t),
     }
 
@@ -40,5 +88,6 @@ def _shortpass_780() -> dict:
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 HANDCRAFTED_TARGETS: list[dict] = [
-    _shortpass_780(),
+    shortpass(780),
+    bandpass(600, 900),
 ]

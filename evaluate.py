@@ -25,7 +25,7 @@ from optoformer.eval.decode import beam_search_decode, beam_search_decode_topk, 
 from optoformer.eval.metrics import SpectrumMetrics
 from optoformer.eval.targets import HANDCRAFTED_TARGETS
 from optoformer.eval.visualize import plot_beam_candidates, plot_design_comparison, plot_grad_stats, plot_loss_components, plot_loss_curve, plot_scatter
-from optoformer.model.transformer import make_inverse_model
+from optoformer.model.prefix_material_thk_model import InverseModel
 
 
 def _load_checkpoint(path: str):
@@ -69,7 +69,15 @@ def main() -> None:
     config = ckpt.get("config", {})
     vocab  = Vocab()
 
-    model = make_inverse_model(len(vocab), config)
+    model = InverseModel(
+        vocab_size=len(vocab),
+        d_model=config.get("d_model", 512),
+        n_layers=config.get("n_layers", 6),
+        n_heads=config.get("n_heads", 8),
+        d_ff=config.get("d_ff", 2048),
+        dropout=config.get("dropout", 0.1),
+        thk_head_hidden_layers=config.get("thk_head_hidden_layers", 2),
+    )
     model.load_state_dict(ckpt["model_state"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device).eval()

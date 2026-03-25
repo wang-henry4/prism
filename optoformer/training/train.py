@@ -139,6 +139,8 @@ def train_inverse(
     config: dict | None = None,
     vocab=None,
     thk_loss_weight: float = 1.0,
+    start_epoch: int = 1,
+    prior_loss_history: list[dict] | None = None,
 ) -> list[dict]:
     """
     Train the InverseModel.
@@ -148,14 +150,19 @@ def train_inverse(
     Per-token mat_loss and thk_loss are logged each epoch so you can
     compare their scales and tune thk_loss_weight accordingly.
 
+    Args:
+        start_epoch:        Epoch number to start from (1-based). When resuming,
+                            set to prior epoch + 1.
+        prior_loss_history: Loss history from a prior checkpoint to prepend.
+
     Returns:
         loss_history — list of per-epoch dicts including component losses
     """
     run_dir = os.path.join(save_dir, run_name)
     os.makedirs(run_dir, exist_ok=True)
     mat_criterion = LabelSmoothingLoss(vocab_size, smoothing=0.1, pad_id=pad_id)
-    loss_history: list[dict] = []
-    best_dev_loss = float("inf")
+    loss_history: list[dict] = list(prior_loss_history) if prior_loss_history else []
+    best_dev_loss = min((h["dev"] for h in loss_history), default=float("inf"))
 
     vocab_dict = vocab.word2id if vocab is not None else {}
     n_train_batches = len(train_loader)
@@ -178,7 +185,8 @@ def train_inverse(
         total    = (mat_loss + thk_loss_weight * thk_loss) / max(ntokens, 1)
         return total, ntokens, mat_loss.item(), thk_loss.item()
 
-    for epoch in range(1, epochs + 1):
+    end_epoch = start_epoch + epochs - 1
+    for epoch in range(start_epoch, end_epoch + 1):
         # ── train ──
         model.train()
         train_loss_sum = 0.0
@@ -211,7 +219,7 @@ def train_inverse(
             current_lr      = scheduler.get_last_lr()[0]
 
             print(
-                f"\rEpoch {epoch}/{epochs}  "
+                f"\rEpoch {epoch}/{end_epoch}  "
                 f"step {step}/{n_train_batches}  "
                 f"loss={running_loss:.6f}  "
                 f"lr={current_lr:.4e}  "
@@ -244,7 +252,7 @@ def train_inverse(
                 dev_tokens   += ntokens
 
                 print(
-                    f"\rEpoch {epoch}/{epochs}  "
+                    f"\rEpoch {epoch}/{end_epoch}  "
                     f"eval {step}/{n_dev_batches}",
                     end="", flush=True,
                 )
@@ -256,7 +264,7 @@ def train_inverse(
         current_lr = scheduler.get_last_lr()[0]
 
         print(
-            f"\rEpoch {epoch:4d}/{epochs}  "
+            f"\rEpoch {epoch:4d}/{end_epoch}  "
             f"train={train_loss:.6f}  dev={dev_loss:.6f}  "
             f"mat={dev_mat:.4f}  thk={dev_thk:.4f}  "
             f"ratio={dev_thk / (dev_mat + 1e-10):.1f}  "
