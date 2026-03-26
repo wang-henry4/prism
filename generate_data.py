@@ -40,12 +40,22 @@ def _simulate_one(args: tuple[list[str], list[float]]) -> list[float]:
 
 # ── Sampling ───────────────────────────────────────────────────────────────────
 
+def _build_length_weights(min_layers: int, max_layers: int, alpha: float = 1.0) -> list[float]:
+    """P(L) ∝ L^alpha weights for sequence lengths min_layers..max_layers."""
+    lengths = range(min_layers, max_layers + 1)
+    raw = [l ** alpha for l in lengths]
+    total = sum(raw)
+    return [w / total for w in raw]
+
+
 def sample_structure(
     rng: random.Random,
     min_layers: int,
     max_layers: int,
+    length_weights: list[float],
 ) -> tuple[list[str], list[float]]:
-    n = rng.randint(min_layers, max_layers)
+    lengths = list(range(min_layers, max_layers + 1))
+    n = rng.choices(lengths, weights=length_weights, k=1)[0]
     materials   = rng.choices(MATERIALS, k=n)
     thicknesses = [float(rng.randrange(THK_MIN, THK_MAX + THK_STEP, THK_STEP)) for _ in range(n)]
     return materials, thicknesses
@@ -80,11 +90,11 @@ def _next_partition_index(split_dir: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate thin-film TMM dataset")
-    parser.add_argument("--n_samples",  type=int,   default=3_000_000)
+    parser.add_argument("--n_samples",  type=int,   default=10_000_000)
     parser.add_argument("--min_layers", type=int,   default=MIN_LAYERS)
     parser.add_argument("--max_layers", type=int,   default=MAX_LAYERS)
-    parser.add_argument("--dev_split",  type=float, default=0.05)
-    parser.add_argument("--val_split",  type=float, default=0.01)
+    parser.add_argument("--dev_split",  type=float, default=0.01)
+    parser.add_argument("--val_split",  type=float, default=0.001)
     parser.add_argument("--out_dir",    default="./data")
     parser.add_argument("--nk_dir",     default="./nk")
     parser.add_argument("--workers",    type=int,   default=32)
@@ -96,9 +106,10 @@ def main() -> None:
         print(f"Seed: {args.seed}")
     rng = random.Random(args.seed)
 
-    print(f"Sampling {args.n_samples:,} structures…")
+    length_weights = _build_length_weights(args.min_layers, args.max_layers, alpha=1.0)
+    print(f"Sampling {args.n_samples:,} structures (length weights α=1.0)…")
     structures = [
-        sample_structure(rng, args.min_layers, args.max_layers)
+        sample_structure(rng, args.min_layers, args.max_layers, length_weights)
         for _ in range(args.n_samples)
     ]
     materials_list, thicknesses_list = zip(*structures)
