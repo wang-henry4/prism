@@ -2,13 +2,14 @@
 Generate thin-film training data via TMM simulation.
 
 Usage:
-    # First generation — creates part_000.arrow in each split folder
-    python generate_data.py --n_samples 3000000
+    # Generate 10M training samples in 1M chunks + 100K dev + 10K val
+    python generate_data.py --n_train 10000000 --n_dev 100000 --n_val 10000
 
-    # Add more data — auto-detects next partition number
-    python generate_data.py --n_samples 1000000 --seed 99999
+    # Add more training data — auto-detects next partition number
+    python generate_data.py --n_train 5000000 --n_dev 0 --n_val 0 --seed 99999
 
 Outputs partitioned Arrow files into data/train/, data/dev/, data/val/.
+Training data is written in chunks (default 1M) to keep memory bounded.
 """
 
 import argparse
@@ -86,19 +87,66 @@ def _next_partition_index(split_dir: str) -> int:
     return max(indices) + 1
 
 
+# ── Chunk generation ──────────────────────────────────────────────────────────
+
+def _generate_chunk(
+    rng: random.Random,
+    n_samples: int,
+    min_layers: int,
+    max_layers: int,
+    length_weights: list[float],
+    nk_dir: str,
+    workers: int,
+    out_path: str,
+    desc: str,
+) -> None:
+    """Sample structures, simulate, and write a single Arrow partition."""
+    structures = [
+        sample_structure(rng, min_layers, max_layers, length_weights)
+        for _ in range(n_samples)
+    ]
+    materials_list, thicknesses_list = zip(*structures)
+
+    from multiprocessing import Pool
+
+    with Pool(
+        processes=workers,
+        initializer=_worker_init,
+        initargs=(nk_dir,),
+    ) as pool:
+        spectra = list(
+            tqdm(
+                pool.imap(_simulate_one, zip(materials_list, thicknesses_list)),
+                total=n_samples,
+                unit="sample",
+                desc=desc,
+            )
+        )
+
+    _write_arrow(
+        out_path,
+        list(materials_list),
+        list(thicknesses_list),
+        spectra,
+    )
+    print(f"  → {out_path} ({n_samples:,} samples)")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate thin-film TMM dataset")
-    parser.add_argument("--n_samples",  type=int,   default=10_000_000)
-    parser.add_argument("--min_layers", type=int,   default=MIN_LAYERS)
-    parser.add_argument("--max_layers", type=int,   default=MAX_LAYERS)
-    parser.add_argument("--dev_split",  type=float, default=0.01)
-    parser.add_argument("--val_split",  type=float, default=0.001)
-    parser.add_argument("--out_dir",    default="./data")
-    parser.add_argument("--nk_dir",     default="./nk")
-    parser.add_argument("--workers",    type=int,   default=32)
-    parser.add_argument("--seed",       type=int,   default=None,
+    parser.add_argument("--n_train",     type=int,   default=10_000_000)
+    parser.add_argument("--n_dev",       type=int,   default=100_000)
+    parser.add_argument("--n_val",       type=int,   default=10_000)
+    parser.add_argument("--chunk_size",  type=int,   default=1_000_000,
+                        help="Samples per Arrow partition for training data")
+    parser.add_argument("--min_layers",  type=int,   default=MIN_LAYERS)
+    parser.add_argument("--max_layers",  type=int,   default=MAX_LAYERS)
+    parser.add_argument("--out_dir",     default="./data")
+    parser.add_argument("--nk_dir",      default="./nk")
+    parser.add_argument("--workers",     type=int,   default=32)
+    parser.add_argument("--seed",        type=int,   default=None,
                         help="Random seed (default: random). Set for reproducibility.")
     args = parser.parse_args()
 
@@ -107,56 +155,57 @@ def main() -> None:
     rng = random.Random(args.seed)
 
     length_weights = _build_length_weights(args.min_layers, args.max_layers, alpha=1.0)
-    print(f"Sampling {args.n_samples:,} structures (length weights α=1.0)…")
-    structures = [
-        sample_structure(rng, args.min_layers, args.max_layers, length_weights)
-        for _ in range(args.n_samples)
-    ]
-    materials_list, thicknesses_list = zip(*structures)
 
-    print(f"Simulating with {args.workers} workers…")
-    from multiprocessing import Pool
+    # ── Training data: chunked ────────────────────────────────────────────────
+    if args.n_train > 0:
+        train_dir = os.path.join(args.out_dir, "train")
+        os.makedirs(train_dir, exist_ok=True)
+        part_idx = _next_partition_index(train_dir)
 
-    with Pool(
-        processes=args.workers,
-        initializer=_worker_init,
-        initargs=(args.nk_dir,),
-    ) as pool:
-        spectra = list(
-            tqdm(
-                pool.imap(_simulate_one, zip(materials_list, thicknesses_list)),
-                total=args.n_samples,
-                unit="sample",
+        remaining = args.n_train
+        chunk_num = 0
+        n_chunks = (args.n_train + args.chunk_size - 1) // args.chunk_size
+        print(f"Generating {args.n_train:,} training samples in {n_chunks} chunk(s) of ≤{args.chunk_size:,}…")
+
+        while remaining > 0:
+            chunk_n = min(args.chunk_size, remaining)
+            part_path = os.path.join(train_dir, f"part_{part_idx:03d}.arrow")
+            _generate_chunk(
+                rng, chunk_n, args.min_layers, args.max_layers,
+                length_weights, args.nk_dir, args.workers, part_path,
+                desc=f"train chunk {chunk_num + 1}/{n_chunks}",
             )
+            part_idx += 1
+            chunk_num += 1
+            remaining -= chunk_n
+
+    # ── Dev set ───────────────────────────────────────────────────────────────
+    if args.n_dev > 0:
+        dev_dir = os.path.join(args.out_dir, "dev")
+        os.makedirs(dev_dir, exist_ok=True)
+        part_idx = _next_partition_index(dev_dir)
+        part_path = os.path.join(dev_dir, f"part_{part_idx:03d}.arrow")
+        print(f"\nGenerating {args.n_dev:,} dev samples…")
+        _generate_chunk(
+            rng, args.n_dev, args.min_layers, args.max_layers,
+            length_weights, args.nk_dir, args.workers, part_path,
+            desc="dev",
         )
 
-    n_dev   = int(args.n_samples * args.dev_split)
-    n_val   = int(args.n_samples * args.val_split)
-    n_train = args.n_samples - n_dev - n_val
-
-    splits = {
-        "train": (0, n_train),
-        "dev":   (n_train, n_train + n_dev),
-        "val":   (n_train + n_dev, args.n_samples),
-    }
-
-    for split_name, (start, end) in splits.items():
-        if start == end:
-            print(f"{split_name}: 0 samples → skipping")
-            continue
-        split_dir = os.path.join(args.out_dir, split_name)
-        os.makedirs(split_dir, exist_ok=True)
-        part_idx = _next_partition_index(split_dir)
-        part_path = os.path.join(split_dir, f"part_{part_idx:03d}.arrow")
-
-        _write_arrow(
-            part_path,
-            list(materials_list[start:end]),
-            list(thicknesses_list[start:end]),
-            spectra[start:end],
+    # ── Val set ───────────────────────────────────────────────────────────────
+    if args.n_val > 0:
+        val_dir = os.path.join(args.out_dir, "val")
+        os.makedirs(val_dir, exist_ok=True)
+        part_idx = _next_partition_index(val_dir)
+        part_path = os.path.join(val_dir, f"part_{part_idx:03d}.arrow")
+        print(f"\nGenerating {args.n_val:,} val samples…")
+        _generate_chunk(
+            rng, args.n_val, args.min_layers, args.max_layers,
+            length_weights, args.nk_dir, args.workers, part_path,
+            desc="val",
         )
-        n_split = end - start
-        print(f"{split_name}: {n_split:,} samples → {part_path}")
+
+    print("\nDone.")
 
 
 if __name__ == "__main__":
