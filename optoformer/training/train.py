@@ -222,7 +222,7 @@ def train_inverse(
                 f"\rEpoch {epoch}/{end_epoch}  "
                 f"step {step}/{n_train_batches}  "
                 f"loss={running_loss:.6f}  "
-                f"lr={current_lr:.4e}  "
+                f"lr={current_lr:.8e}  "
                 f"gnorm={gs['grad_norm']:.2f}  "
                 f"gmax={gs['grad_max']:.2f}  "
                 f"step={step_ms:.0f}ms",
@@ -269,7 +269,7 @@ def train_inverse(
             f"mat={dev_mat:.4f}  thk={dev_thk:.4f}  "
             f"ratio={dev_thk / (dev_mat + 1e-10):.1f}  "
             f"train={_fmt(train_time)}  eval={_fmt(eval_time)}  "
-            f"lr={current_lr:.4e}"
+            f"lr={current_lr:.8e}"
             + (" *" if dev_loss < best_dev_loss else "  ")
         )
 

@@ -16,9 +16,9 @@ N_WL = len(WL_NM)                                                     # 71
 N_SPECTRUM = 2 * N_WL                                                 # 142 (R + T)
 
 # ── Thickness ─────────────────────────────────────────────────────────────────
-THK_MIN = 5          # nm
-THK_MAX = 250        # nm
-THK_STEP = 5         # nm
+THK_MIN = 10          # nm
+THK_MAX = 500        # nm
+THK_STEP = 10         # nm
 
 # ── Layer count ───────────────────────────────────────────────────────────────
 MAX_LAYERS = 20
