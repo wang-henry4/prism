@@ -1,6 +1,10 @@
 """
 Evaluate the pretrained OptoGPT checkpoint on optoformer val data.
 
+Matches optoformer's evaluate.py pattern:
+  1. Val set: greedy decode → TMM re-sim → MAE/MSE/R²
+  2. Handcrafted targets: greedy decode → TMM re-sim → per-target metrics
+
 Usage:
     python baselines/eval_optogpt.py \
         --checkpoint /path/to/optogpt.pt \
@@ -11,6 +15,7 @@ Usage:
 import argparse
 import json
 import os
+import random
 import sys
 import time
 
@@ -26,9 +31,16 @@ sys.path.insert(0, OPTOGPT_SRC)
 
 from core.models.transformer import make_model_I, subsequent_mask  # noqa: E402
 
-# ── TMM simulation (reuse optoformer's sim) ──────────────────────────────────
+# Reuse optoformer's sim and eval utilities
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from optoformer.data.sim import load_nk, simulate  # noqa: E402
+from optoformer.eval.metrics import SpectrumMetrics  # noqa: E402
+from optoformer.eval.targets import HANDCRAFTED_TARGETS  # noqa: E402
+from optoformer.eval.visualize import (  # noqa: E402
+    plot_beam_candidates,
+    plot_design_comparison,
+    plot_scatter,
+)
 
 _nk_dict = None
 
@@ -75,15 +87,28 @@ def parse_token(token):
     return parts[0], float(parts[1])
 
 
+def decode_tokens(tokens):
+    """Parse list of OptoGPT tokens into (materials, thicknesses)."""
+    mats, thks = [], []
+    for tok in tokens:
+        try:
+            m, t = parse_token(tok)
+            mats.append(m)
+            thks.append(t)
+        except (ValueError, IndexError):
+            pass
+    return mats, thks
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--val_path", default="./data/max_len_20/val/part_000.arrow")
     parser.add_argument("--nk_dir", default="./nk")
-    parser.add_argument("--n_samples", type=int, default=None, help="Limit samples (default: all)")
+    parser.add_argument("--n_samples", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--output", default="./baselines/optogpt_results.json")
+    parser.add_argument("--plot_dir", default="./plots/baselines/optogpt")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -111,30 +136,27 @@ def main():
     print("Loading val data...")
     table = feather.read_table(args.val_path, memory_map=True)
     spectra_gt = table["spectra"].to_pylist()
+    mats_gt = table["materials"].to_pylist()
+    thks_gt = table["thicknesses"].to_pylist()
     n_samples = len(spectra_gt) if args.n_samples is None else min(args.n_samples, len(spectra_gt))
     spectra_gt = spectra_gt[:n_samples]
+    mats_gt = mats_gt[:n_samples]
+    thks_gt = thks_gt[:n_samples]
     print(f"Evaluating {n_samples} samples")
 
-    # ── Decode ────────────────────────────────────────────────────────────
-    print("Decoding...")
-    all_mats, all_thks = [], []
+    # ── Phase 1: val set decode ───────────────────────────────────────────
+    print("Decoding val set (greedy)...")
+    all_pred_mats, all_pred_thks = [], []
     t0 = time.perf_counter()
 
     with torch.no_grad():
         for i, spec in enumerate(spectra_gt):
             tokens = greedy_decode(model, spec, index_dict, word_dict, max_len, device)
-            mats, thks = [], []
-            for tok in tokens:
-                try:
-                    m, t = parse_token(tok)
-                    mats.append(m)
-                    thks.append(t)
-                except (ValueError, IndexError):
-                    pass  # skip malformed tokens (UNK, PAD)
-            all_mats.append(mats)
-            all_thks.append(thks)
+            mats, thks = decode_tokens(tokens)
+            all_pred_mats.append(mats)
+            all_pred_thks.append(thks)
 
-            if (i + 1) % 200 == 0:
+            if (i + 1) % 500 == 0:
                 elapsed = time.perf_counter() - t0
                 rate = (i + 1) / elapsed
                 eta = (n_samples - i - 1) / rate
@@ -143,44 +165,111 @@ def main():
     decode_time = time.perf_counter() - t0
     print(f"Decoded {n_samples} in {decode_time:.1f}s ({n_samples/decode_time:.0f} samples/s)")
 
-    # ── TMM re-simulation ─────────────────────────────────────────────────
+    # ── Phase 2: TMM re-simulation ────────────────────────────────────────
     print(f"Re-simulating with {args.workers} workers...")
     with Pool(args.workers, initializer=_worker_init, initargs=(args.nk_dir,)) as pool:
-        all_pred_spectra = pool.map(_simulate_one, zip(all_mats, all_thks))
+        all_pred_spectra = pool.map(_simulate_one, zip(all_pred_mats, all_pred_thks))
 
-    # ── Metrics ───────────────────────────────────────────────────────────
-    pred = np.array(all_pred_spectra)
-    target = np.array(spectra_gt)
+    pred_arr = np.array(all_pred_spectra)
+    target_arr = np.array(spectra_gt)
 
-    mae = float(np.mean(np.abs(pred - target)))
-    mse = float(np.mean((pred - target) ** 2))
-    ss_res = np.sum((pred - target) ** 2)
-    ss_tot = np.sum((target - np.mean(target)) ** 2)
-    r2 = float(1.0 - ss_res / (ss_tot + 1e-10))
+    metrics = SpectrumMetrics.compute(pred_arr, target_arr)
+    per_sample_mae = np.mean(np.abs(pred_arr - target_arr), axis=1)
+    metrics["median_mae"] = float(np.median(per_sample_mae))
+    metrics["p90_mae"] = float(np.percentile(per_sample_mae, 90))
 
-    # Per-sample MAE
-    per_sample_mae = np.mean(np.abs(pred - target), axis=1)
+    print(f"Inverse eval (TMM re-sim)  "
+          f"MAE={metrics['mae']:.6f}  MSE={metrics['mse']:.6f}  R²={metrics['r2']:.4f}")
 
-    results = {
-        "model": "optogpt",
-        "checkpoint": args.checkpoint,
-        "val_path": args.val_path,
-        "n_samples": n_samples,
-        "mae": mae,
-        "mse": mse,
-        "r2": r2,
-        "median_mae": float(np.median(per_sample_mae)),
-        "p90_mae": float(np.percentile(per_sample_mae, 90)),
-        "decode_time_s": decode_time,
-    }
+    # ── Plots ─────────────────────────────────────────────────────────────
+    os.makedirs(args.plot_dir, exist_ok=True)
 
-    print(f"\nResults:  MAE={mae:.6f}  MSE={mse:.6f}  R²={r2:.4f}")
-    print(f"          median_MAE={results['median_mae']:.6f}  p90_MAE={results['p90_mae']:.6f}")
+    n_plot = min(10, len(pred_arr))
+    sample_indices = sorted(random.sample(range(len(pred_arr)), n_plot))
+    for idx in sample_indices:
+        plot_design_comparison(
+            pred_arr[idx], target_arr[idx],
+            all_pred_mats[idx], all_pred_thks[idx],
+            mats_gt[idx], [float(t) for t in thks_gt[idx]],
+            title=f"Sample {idx}",
+            save_path=os.path.join(args.plot_dir, f"design_{idx}.png"),
+        )
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    with open(args.output, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"Saved to {args.output}")
+    plot_scatter(
+        pred_arr, target_arr,
+        title=f"OptoGPT Inverse (TMM)  R²={metrics['r2']:.4f}",
+        save_path=os.path.join(args.plot_dir, "scatter.png"),
+    )
+
+    # ── Phase 3: handcrafted targets ──────────────────────────────────────
+    if HANDCRAFTED_TARGETS:
+        print(f"\nEvaluating {len(HANDCRAFTED_TARGETS)} handcrafted targets (greedy)...")
+        hc_results = []
+
+        with torch.no_grad():
+            for target in HANDCRAFTED_TARGETS:
+                tokens = greedy_decode(
+                    model, target["spectrum"], index_dict, word_dict, max_len, device,
+                )
+                mats, thks = decode_tokens(tokens)
+                hc_results.append({"target": target, "materials": mats, "thicknesses": thks})
+
+        # TMM re-simulate all handcrafted predictions
+        hc_sim_jobs = [(r["materials"], r["thicknesses"]) for r in hc_results]
+        with Pool(args.workers, initializer=_worker_init, initargs=(args.nk_dir,)) as pool:
+            hc_sim_spectra = pool.map(_simulate_one, hc_sim_jobs)
+
+        hc_dir = os.path.join(args.plot_dir, "handcrafted")
+        os.makedirs(hc_dir, exist_ok=True)
+
+        hc_metrics_all = []
+        for r, sim_spec in zip(hc_results, hc_sim_spectra):
+            target_spec = np.array(r["target"]["spectrum"])
+            pred_spec = np.array(sim_spec)
+            m = SpectrumMetrics.compute(pred_spec.reshape(1, -1), target_spec.reshape(1, -1))
+            m["name"] = r["target"]["name"]
+            m["label"] = r["target"]["label"]
+            m["materials"] = r["materials"]
+            m["thicknesses"] = r["thicknesses"]
+            hc_metrics_all.append(m)
+
+            print(f"  {r['target']['label']:40s}  MAE={m['mae']:.6f}  R²={m['r2']:.4f}  "
+                  f"design={r['materials']}  thk={[f'{t:.0f}' for t in r['thicknesses']]}")
+
+            # Wrap as a single candidate for plot_beam_candidates
+            candidate = {
+                "spectrum": sim_spec,
+                "materials": r["materials"],
+                "thicknesses": r["thicknesses"],
+                "score": 0.0,
+                "mse": m["mse"],
+                "mae": m["mae"],
+                "r2": m["r2"],
+            }
+            plot_beam_candidates(
+                [candidate], target_spec,
+                title=f"OptoGPT: {r['target']['label']}",
+                save_path=os.path.join(hc_dir, f"{r['target']['name']}.png"),
+            )
+
+        # Summary
+        hc_maes = [m["mae"] for m in hc_metrics_all]
+        print(f"\nHandcrafted summary: mean_MAE={np.mean(hc_maes):.6f}  "
+              f"median_MAE={np.median(hc_maes):.6f}")
+        metrics["handcrafted_mean_mae"] = float(np.mean(hc_maes))
+        metrics["handcrafted_median_mae"] = float(np.median(hc_maes))
+        metrics["handcrafted"] = hc_metrics_all
+
+    # ── Save ──────────────────────────────────────────────────────────────
+    metrics["model"] = "optogpt"
+    metrics["n_samples"] = n_samples
+    metrics["decode_time_s"] = decode_time
+    metrics["decoding"] = "greedy"
+
+    output_path = os.path.join(args.plot_dir, "metrics.json")
+    with open(output_path, "w") as f:
+        json.dump(metrics, f, indent=2, default=str)
+    print(f"\nSaved to {output_path}")
 
 
 if __name__ == "__main__":
