@@ -1,0 +1,12 @@
+{
+  "model": "optogpt",
+  "checkpoint": "/home/ec2-user/.cache/huggingface/hub/models--mataigao--optogpt/snapshots/5477628ec5f59ce4d4ced818b95b3522c312e759/optogpt.pt",
+  "val_path": "./data/max_len_20/val/part_000.arrow",
+  "n_samples": 10000,
+  "mae": 0.06716072870541902,
+  "mse": 0.026231717183088973,
+  "r2": 0.6807419960345018,
+  "median_mae": 0.03643984635864918,
+  "p90_mae": 0.1964961442344711,
+  "decode_time_s": 371.36932069202885
+}
