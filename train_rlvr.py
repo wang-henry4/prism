@@ -86,8 +86,8 @@ def main() -> None:
                         help="Steps between evaluations")
     parser.add_argument("--n_eval_samples", type=int, default=200,
                         help="Max dev samples for periodic evaluation")
-    parser.add_argument("--reward_mode", default="r2",
-                        choices=["r2", "neg_mse", "neg_mae"],
+    parser.add_argument("--reward_mode", default="normalized_mse",
+                        choices=["normalized_mse", "r2", "neg_mse", "neg_mae"],
                         help="Reward function mode")
     parser.add_argument("--tmm_workers", type=int, default=8,
                         help="Number of TMM simulation workers")

@@ -38,10 +38,11 @@ def _simulate_one(args: tuple[list[str], list[float]]) -> list[float]:
 class TMMReward:
     """Compute rewards by re-simulating predicted thin-film designs via TMM.
 
-    Supports three reward modes:
-        r2:      R² coefficient of determination (0–1, higher is better)
-        neg_mse: negative MSE (≤ 0, higher is better)
-        neg_mae: negative MAE (≤ 0, higher is better)
+    Supports four reward modes:
+        normalized_mse: 1 - MSE, bounded [0, 1] since spectra ∈ [0, 1]
+        r2:             R² coefficient of determination (can be < 0 for flat spectra)
+        neg_mse:        negative MSE (≤ 0, higher is better)
+        neg_mae:        negative MAE (≤ 0, higher is better)
     """
 
     def __init__(
@@ -110,6 +111,10 @@ class TMMReward:
         target: np.ndarray,   # [N, 142]
     ) -> np.ndarray:
         """Compute per-sample reward."""
+        if self.reward_mode == "normalized_mse":
+            # 1 - MSE: bounded [0, 1] since spectra ∈ [0, 1], worst-case MSE = 1.0
+            return 1.0 - np.mean((pred - target) ** 2, axis=1)
+
         if self.reward_mode == "neg_mse":
             return -np.mean((pred - target) ** 2, axis=1)
 
