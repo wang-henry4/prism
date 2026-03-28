@@ -56,11 +56,11 @@ def main() -> None:
                         help="Path to dev Arrow files (for periodic evaluation)")
     parser.add_argument("--nk_dir", default="./nk",
                         help="Directory with per-material nk CSV files")
-    parser.add_argument("--handcrafted_ratio", type=float, default=0.2,
+    parser.add_argument("--handcrafted_ratio", type=float, default=0.5,
                         help="Fraction of each batch from handcrafted targets (0-1)")
 
     # ── GRPO hyperparams ──
-    parser.add_argument("--n_samples", type=int, default=8,
+    parser.add_argument("--n_samples", type=int, default=32,
                         help="Number of rollouts per spectrum (G)")
     parser.add_argument("--temperature", type=float, default=1.0,
                         help="Material sampling temperature")

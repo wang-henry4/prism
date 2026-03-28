@@ -411,6 +411,9 @@ def train_rlvr(
         # ── Logging ──
         mean_reward = rewards.mean().item()
         std_reward = rewards.std().item()
+        # Within-group std: how much reward varies among G rollouts per spectrum
+        rewards_grouped = rewards.view(B, n_samples)
+        intra_group_std = rewards_grouped.std(dim=1).mean().item()
         mean_length = rollouts["lengths"].float().mean().item()
         current_lr = scheduler.get_last_lr()[0]
 
@@ -421,6 +424,7 @@ def train_rlvr(
             "kl": kl.item(),
             "reward_mean": mean_reward,
             "reward_std": std_reward,
+            "reward_intra_group_std": intra_group_std,
             "mean_length": mean_length,
             "grad_norm": grad_norm.item() if isinstance(grad_norm, Tensor) else grad_norm,
             "lr": current_lr,
@@ -433,6 +437,7 @@ def train_rlvr(
             f"pg={pg_loss.item():.4f}  "
             f"kl={kl.item():.4f}  "
             f"R={mean_reward:.4f}±{std_reward:.3f}  "
+            f"intra_σ={intra_group_std:.3f}  "
             f"len={mean_length:.1f}  "
             f"gnorm={step_info['grad_norm']:.2f}  "
             f"lr={current_lr:.2e}  "
