@@ -21,9 +21,9 @@ Structures are **not** compared directly — only spectral fidelity matters, sin
 
 29 practical optical filter spectra (narrowband, broadband, edge, notch, dichroic, neutral density, multi-bandpass, hot/cold mirror, linear variable).
 
-| Model | Decoding | Mean MAE ↓ | Median MAE ↓ |
-|-------|----------|------------|--------------|
-| OptoGPT | greedy | 0.3499 | 0.3419 |
+| Model | Decoding | Mean MAE ↓ | Mean MSE ↓ | Mean R² ↑ |
+|-------|----------|------------|------------|-----------|
+| OptoGPT | greedy | 0.3499 | 0.2332 | -5.40 |
 
 ### OptoGPT per-category breakdown
 
