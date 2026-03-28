@@ -1,8 +1,13 @@
 """Autoregressive decoding strategies for the InverseModel."""
 
+import math
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+from torch.distributions import Categorical
+
+from optoformer.constants import THK_MIN, THK_MAX
 
 
 def greedy_decode(
@@ -356,3 +361,148 @@ def beam_search_decode_topk(
             all_results.append(candidates)
 
     return all_results
+
+
+# ── Stochastic sampling for RLVR ─────────────────────────────────────────────
+
+def sample_decode(
+    model,
+    spectrum: Tensor,               # [B, 142]
+    vocab,
+    n_samples: int = 8,             # G rollouts per spectrum
+    temperature: float = 1.0,       # material sampling temperature
+    thk_noise_std: float = 5.0,     # Gaussian noise σ for thickness (nm)
+    max_len: int = 12,              # max sequence length including BOS
+    device: torch.device | None = None,
+) -> dict:
+    """
+    Stochastic autoregressive decoding for GRPO / RLVR.
+
+    Generates n_samples rollouts per input spectrum. Materials are sampled from
+    Categorical(softmax(logits / temperature)); thicknesses are perturbed with
+    additive Gaussian noise and clamped to [THK_MIN, THK_MAX].
+
+    Runs WITH gradients so log-probabilities can be back-propagated through the
+    policy gradient loss.
+
+    Returns dict with:
+        mat_ids:         list[B*G] of list[int]   — material ID sequences (no BOS/EOS)
+        thk_vals:        list[B*G] of list[float]  — thickness sequences (nm)
+        mat_log_probs:   Tensor [B*G]             — sum of per-step material log-probs
+        thk_log_probs:   Tensor [B*G]             — sum of per-step thickness log-probs
+        total_log_probs: Tensor [B*G]             — mat + thk combined
+        group_ids:       Tensor [B*G] long        — spectrum index each rollout belongs to
+        lengths:         Tensor [B*G] long        — number of material tokens (excl BOS/EOS)
+    """
+    if device is None:
+        device = next(model.parameters()).device
+
+    B = spectrum.size(0)
+    G = n_samples
+    N = B * G  # total rollouts
+
+    # Expand spectrum: each spectrum repeated G times  [B*G, 142]
+    spec_expanded = spectrum.to(device).unsqueeze(1).expand(B, G, -1).reshape(N, -1)
+
+    # Group IDs: [0,0,...,0, 1,1,...,1, ..., B-1,B-1,...,B-1]
+    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(N)
+
+    # Initialize sequences with BOS
+    mat_seqs = torch.full((N, 1), vocab.BOS, dtype=torch.long, device=device)
+    thk_seqs = torch.zeros(N, 1, device=device)
+
+    finished = torch.zeros(N, dtype=torch.bool, device=device)
+
+    # Accumulators for per-step log-probs (as lists, summed at end)
+    step_mat_lps: list[Tensor] = []   # each [N] (zero for finished rollouts)
+    step_thk_lps: list[Tensor] = []
+
+    mat_results: list[list[int]]   = [[] for _ in range(N)]
+    thk_results: list[list[float]] = [[] for _ in range(N)]
+
+    log_norm_const = math.log(thk_noise_std * math.sqrt(2.0 * math.pi))
+
+    for _ in range(max_len - 1):
+        if finished.all():
+            break
+
+        T = mat_seqs.size(1)
+        causal = torch.tril(torch.ones(T, T, dtype=torch.bool, device=device))
+        tgt_mask = causal.unsqueeze(0).expand(N, -1, -1)
+
+        mat_logits, thk_pred = model(spec_expanded, mat_seqs, thk_seqs, tgt_mask)
+        # mat_logits: [N, T, V],  thk_pred: [N, T, V] (per-material) or [N, T]
+
+        # ── Material sampling ──
+        logits_last = mat_logits[:, -1, :]  # [N, V]
+        # Mask PAD token (index 0) to prevent sampling it
+        logits_last[:, vocab.PAD] = -float("inf")
+        # For finished rollouts, force PAD
+        logits_last[finished] = -float("inf")
+        logits_last[finished, vocab.PAD] = 0.0
+
+        scaled_logits = logits_last / temperature
+        log_probs = F.log_softmax(scaled_logits, dim=-1)  # [N, V]
+        dist = Categorical(logits=scaled_logits)
+        next_mat = dist.sample()                           # [N]
+
+        # Log-prob of sampled material
+        mat_lp = log_probs.gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [N]
+        mat_lp = mat_lp * (~finished).float()  # zero out finished
+        step_mat_lps.append(mat_lp)
+
+        # ── Thickness sampling ──
+        per_material_thk = thk_pred.dim() == 3
+        if per_material_thk:
+            thk_mean = thk_pred[:, -1, :].gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [N]
+        else:
+            thk_mean = thk_pred[:, -1]  # [N]
+
+        # Reparameterized sampling: thk = mean + σ * ε
+        eps = torch.randn_like(thk_mean)
+        thk_sampled = thk_mean + thk_noise_std * eps
+        thk_sampled = thk_sampled.clamp(THK_MIN, THK_MAX)
+
+        # Gaussian log-prob (using unclamped for proper gradient flow)
+        thk_lp = -0.5 * ((thk_sampled.detach() - thk_mean) / thk_noise_std) ** 2 - log_norm_const
+        thk_lp = thk_lp * (~finished).float()
+        step_thk_lps.append(thk_lp)
+
+        # For finished rollouts, override to PAD/0
+        next_mat = torch.where(finished, torch.full_like(next_mat, vocab.PAD), next_mat)
+        thk_sampled = torch.where(finished, torch.zeros_like(thk_sampled), thk_sampled)
+
+        # ── Collect results ──
+        for i in range(N):
+            if not finished[i]:
+                tok = next_mat[i].item()
+                if tok == vocab.EOS:
+                    finished[i] = True
+                elif tok != vocab.PAD:
+                    mat_results[i].append(tok)
+                    thk_results[i].append(float(thk_sampled[i].item()))
+
+        # Check if newly-generated EOS
+        newly_eos = (next_mat == vocab.EOS) & (~finished)
+        finished = finished | (next_mat == vocab.EOS)
+
+        # Extend sequences
+        mat_seqs = torch.cat([mat_seqs, next_mat.unsqueeze(1)], dim=1)
+        thk_seqs = torch.cat([thk_seqs, thk_sampled.unsqueeze(1)], dim=1)
+
+    # Sum log-probs across steps
+    mat_log_probs = torch.stack(step_mat_lps, dim=1).sum(dim=1)    # [N]
+    thk_log_probs = torch.stack(step_thk_lps, dim=1).sum(dim=1)    # [N]
+    total_log_probs = mat_log_probs + thk_log_probs                 # [N]
+
+    lengths = torch.tensor([len(m) for m in mat_results], dtype=torch.long, device=device)
+
+    return {
+        "mat_ids": mat_results,
+        "thk_vals": thk_results,
+        "mat_log_probs": mat_log_probs,
+        "thk_log_probs": thk_log_probs,
+        "total_log_probs": total_log_probs,
+        "group_ids": group_ids,
+        "lengths": lengths,
+    }
