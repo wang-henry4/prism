@@ -112,6 +112,7 @@ def main() -> None:
     d_ff = config.get("d_ff", 2048)
     dropout = config.get("dropout", 0.1)
     thk_head_hidden_layers = config.get("thk_head_hidden_layers", 2)
+    log_space_thk = config.get("log_space_thk", True)
 
     model_kwargs = dict(
         vocab_size=len(vocab),
@@ -121,6 +122,7 @@ def main() -> None:
         d_ff=d_ff,
         dropout=dropout,
         thk_head_hidden_layers=thk_head_hidden_layers,
+        log_space_thk=log_space_thk,
     )
 
     # Policy model (trainable)

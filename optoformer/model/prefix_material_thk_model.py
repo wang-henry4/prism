@@ -13,9 +13,10 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
-from optoformer.constants import N_SPECTRUM
+from optoformer.constants import N_SPECTRUM, THK_MIN
 
 from .common import (
     EncoderLayer,
@@ -42,8 +43,13 @@ class ThicknessMLPHead(nn.Module):
     Input:  [B, T, d_model]
     Output: [B, T, vocab_size]
 
-    Each output dimension corresponds to the predicted thickness (nm) for
-    that material ID, enabling joint (material, thickness) beam search.
+    Each output dimension corresponds to the predicted thickness for that
+    material ID, enabling joint (material, thickness) beam search.
+
+    When log_space=True, the raw output is passed through softplus to ensure
+    positivity (representing log(thk / THK_MIN)).  The caller converts to nm
+    via ``THK_MIN * exp(output)``.  When log_space=False (default), the raw
+    linear output is returned directly (nm).
     """
 
     def __init__(
@@ -53,8 +59,10 @@ class ThicknessMLPHead(nn.Module):
         n_hidden_layers: int = 2,
         d_hidden: int | None = None,
         dropout: float = 0.1,
+        log_space: bool = True,
     ):
         super().__init__()
+        self.log_space = log_space
         d_hidden = d_hidden or d_model
         layers: list[nn.Module] = []
 
@@ -71,7 +79,11 @@ class ThicknessMLPHead(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.net(x)
+        out = self.net(x)
+        if self.log_space:
+            # softplus ensures output > 0 (represents log(thk / THK_MIN))
+            out = F.softplus(out)
+        return out
 
 
 class InverseModel(nn.Module):
@@ -96,10 +108,12 @@ class InverseModel(nn.Module):
         dropout: float = 0.1,
         n_spectrum: int = N_SPECTRUM,
         thk_head_hidden_layers: int = 2,
+        log_space_thk: bool = True,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
+        self.log_space_thk = log_space_thk
 
         self.spectrum_proj = SpectrumProjection(d_model, n_spectrum)
         self.embedding = MaterialEmbedding(vocab_size, d_model)
@@ -114,6 +128,7 @@ class InverseModel(nn.Module):
             n_hidden_layers=thk_head_hidden_layers,
             d_hidden=d_model,
             dropout=dropout,
+            log_space=log_space_thk,
         )
 
         self._init_weights()
@@ -135,7 +150,9 @@ class InverseModel(nn.Module):
 
         Returns:
             mat_logits: [B, T, vocab_size]  — logits at each decoder position
-            thk_pred:   [B, T, vocab_size]  — per-material thickness prediction (nm)
+            thk_pred:   [B, T, vocab_size]  — per-material thickness prediction.
+                        When log_space_thk=True this is log(thk/THK_MIN) (use
+                        thk_to_nm() to convert).  Otherwise raw nm.
         """
         B, T = tgt_mat.shape
 
@@ -173,3 +190,18 @@ class InverseModel(nn.Module):
         mat_logits = self.mat_head(x_mat)             # [B, T, vocab_size]
         thk_pred = self.thk_head(x_mat)               # [B, T, vocab_size]
         return mat_logits, thk_pred
+
+    def thk_to_nm(self, thk_pred: Tensor) -> Tensor:
+        """Convert thickness head output to nm.
+
+        No-op when log_space_thk=False.  When True, computes
+        ``THK_MIN * exp(clamp(thk_pred, max=8))`` (~29 800 nm safety cap).
+        """
+        if not self.log_space_thk:
+            return thk_pred
+        return THK_MIN * torch.exp(thk_pred.clamp(max=8.0))
+
+    @staticmethod
+    def nm_to_log(thk_nm: Tensor) -> Tensor:
+        """Convert nm thickness to log-space target: log(thk / THK_MIN)."""
+        return torch.log(thk_nm.clamp(min=THK_MIN) / THK_MIN)

@@ -47,6 +47,9 @@ def greedy_decode(
             tgt_mask = causal.unsqueeze(0).expand(B, -1, -1)
 
             mat_logits, thk_pred = model(spectrum, mat_seqs, thk_seqs, tgt_mask)
+            # Convert to nm if model uses log-space thickness
+            if hasattr(model, "thk_to_nm"):
+                thk_pred = model.thk_to_nm(thk_pred)
 
             next_mat = mat_logits[:, -1, :].argmax(dim=-1)  # [B]
             # thk_pred is [B, T] or [B, T, vocab_size]
@@ -136,6 +139,8 @@ def beam_search_decode(
                 tgt_mask = causal.unsqueeze(0).expand(K, -1, -1)
 
                 mat_logits, thk_pred = model(spec_k, beam_mat, beam_thk, tgt_mask)
+                if hasattr(model, "thk_to_nm"):
+                    thk_pred = model.thk_to_nm(thk_pred)
 
                 log_probs = F.log_softmax(mat_logits[:, -1, :], dim=-1)  # [K, V]
                 # thk_pred is [K, T] or [K, T, vocab_size]
@@ -279,6 +284,8 @@ def beam_search_decode_topk(
                 tgt_mask = causal.unsqueeze(0).expand(K, -1, -1)
 
                 mat_logits, thk_pred = model(spec_k, beam_mat, beam_thk, tgt_mask)
+                if hasattr(model, "thk_to_nm"):
+                    thk_pred = model.thk_to_nm(thk_pred)
 
                 log_probs = F.log_softmax(mat_logits[:, -1, :], dim=-1)
                 per_material_thk = thk_pred.dim() == 3
@@ -431,7 +438,10 @@ def sample_decode(
         tgt_mask = causal.unsqueeze(0).expand(N, -1, -1)
 
         mat_logits, thk_pred = model(spec_expanded, mat_seqs, thk_seqs, tgt_mask)
-        # mat_logits: [N, T, V],  thk_pred: [N, T, V] (per-material) or [N, T]
+        # Convert to nm if model uses log-space thickness
+        if hasattr(model, "thk_to_nm"):
+            thk_pred = model.thk_to_nm(thk_pred)
+        # mat_logits: [N, T, V],  thk_pred: [N, T, V] (per-material) or [N, T], in nm
 
         # ── Material sampling ──
         logits_last = mat_logits[:, -1, :]  # [N, V]
@@ -458,7 +468,7 @@ def sample_decode(
         else:
             thk_mean = thk_pred[:, -1]  # [N]
 
-        # Reparameterized sampling: thk = mean + σ * ε
+        # Reparameterized sampling: thk = mean + σ * ε  (always in nm)
         eps = torch.randn_like(thk_mean)
         thk_sampled = thk_mean + thk_noise_std * eps
         thk_sampled = thk_sampled.clamp(THK_MIN, THK_MAX)

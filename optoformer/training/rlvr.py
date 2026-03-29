@@ -143,7 +143,9 @@ def compute_ref_log_probs(
             tgt_mask = causal.unsqueeze(0)
 
             mat_logits, thk_pred = ref_model(spec, mat_seq, thk_seq, tgt_mask)
-            # mat_logits: [1, T, V], thk_pred: [1, T, V]
+            if hasattr(ref_model, "thk_to_nm"):
+                thk_pred = ref_model.thk_to_nm(thk_pred)
+            # mat_logits: [1, T, V], thk_pred: [1, T, V] (nm)
 
             log_probs = F.log_softmax(mat_logits[0], dim=-1)  # [T, V]
             target_t = torch.tensor(target_ids, dtype=torch.long, device=device)
@@ -222,6 +224,8 @@ def compute_ref_log_probs_batched(
 
     with torch.no_grad():
         mat_logits, thk_pred = ref_model(spec, input_mat, input_thk, tgt_mask)
+        if hasattr(ref_model, "thk_to_nm"):
+            thk_pred = ref_model.thk_to_nm(thk_pred)
 
     log_probs = F.log_softmax(mat_logits, dim=-1)  # [N, T, V]
 

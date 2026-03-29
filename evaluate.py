@@ -77,6 +77,7 @@ def main() -> None:
         d_ff=config.get("d_ff", 2048),
         dropout=config.get("dropout", 0.1),
         thk_head_hidden_layers=config.get("thk_head_hidden_layers", 2),
+        log_space_thk=config.get("log_space_thk", True),
     )
     model.load_state_dict(ckpt["model_state"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

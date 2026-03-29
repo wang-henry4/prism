@@ -168,6 +168,8 @@ def train_inverse(
     n_train_batches = len(train_loader)
     n_dev_batches   = len(dev_loader)
 
+    log_space_thk = getattr(model, "log_space_thk", False)
+
     def _forward_loss(batch) -> tuple[Tensor, int, float, float]:
         """Returns (total_loss, ntokens, mat_loss_sum, thk_loss_sum)."""
         mat_logits, thk_pred = model(
@@ -180,7 +182,12 @@ def train_inverse(
         if thk_pred.dim() == 3:
             # Gather the thickness prediction at the ground-truth material index
             thk_pred = thk_pred.gather(-1, batch.tgt_y_mat.unsqueeze(-1)).squeeze(-1)
-        thk_loss = ((thk_pred - batch.tgt_y_thk) ** 2 * thk_mask).sum()
+        # Compare in matching space (log-space or nm)
+        thk_target = batch.tgt_y_thk
+        if log_space_thk:
+            from optoformer.model.prefix_material_thk_model import InverseModel
+            thk_target = InverseModel.nm_to_log(thk_target)
+        thk_loss = ((thk_pred - thk_target) ** 2 * thk_mask).sum()
         ntokens  = batch.ntokens_tgt
         total    = (mat_loss + thk_loss_weight * thk_loss) / max(ntokens, 1)
         return total, ntokens, mat_loss.item(), thk_loss.item()
