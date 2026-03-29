@@ -42,15 +42,20 @@ def make_optimizer_and_scheduler(
         model.parameters(), lr=peak_lr,
         betas=(0.9, 0.98), eps=1e-9, weight_decay=weight_decay,
     )
-    warmup = LinearLR(
-        optimizer, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps,
-    )
-    cosine = CosineAnnealingLR(
-        optimizer, T_max=max(total_steps - warmup_steps, 1), eta_min=min_lr,
-    )
-    scheduler = SequentialLR(
-        optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps],
-    )
+    if warmup_steps > 0:
+        warmup = LinearLR(
+            optimizer, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps,
+        )
+        cosine = CosineAnnealingLR(
+            optimizer, T_max=max(total_steps - warmup_steps, 1), eta_min=min_lr,
+        )
+        scheduler = SequentialLR(
+            optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps],
+        )
+    else:
+        scheduler = CosineAnnealingLR(
+            optimizer, T_max=max(total_steps, 1), eta_min=min_lr,
+        )
     return optimizer, scheduler
 
 
