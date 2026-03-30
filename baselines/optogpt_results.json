@@ -1,12 +1,666 @@
 {
+  "mse": 0.021769442838409193,
+  "mae": 0.05854717896634169,
+  "r2": 0.7152710599145335,
+  "median_mae": 0.03107724330056068,
+  "p90_mae": 0.16206590521078185,
+  "handcrafted_mean_mae": 0.34989993637136424,
+  "handcrafted_median_mae": 0.34188611699158106,
+  "handcrafted": [
+    {
+      "mse": 0.4964364177484987,
+      "mae": 0.5,
+      "r2": -1.0144604530557633,
+      "name": "narrowband_532_fwhm10",
+      "label": "Narrowband 532 nm (FWHM 10 nm)",
+      "materials": [
+        "Ag",
+        "HfO2",
+        "Ag"
+      ],
+      "thicknesses": [
+        30.0,
+        100.0,
+        240.0
+      ]
+    },
+    {
+      "mse": 0.49475345261488163,
+      "mae": 0.5,
+      "r2": -1.02143605055472,
+      "name": "narrowband_633_fwhm10",
+      "label": "Narrowband 633 nm (FWHM 10 nm)",
+      "materials": [
+        "Ta2O5",
+        "HfO2",
+        "MgF2",
+        "Ta2O5",
+        "MgF2",
+        "Ag",
+        "Al",
+        "Ag"
+      ],
+      "thicknesses": [
+        450.0,
+        450.0,
+        380.0,
+        440.0,
+        80.0,
+        50.0,
+        30.0,
+        40.0
+      ]
+    },
+    {
+      "mse": 0.491251877502089,
+      "mae": 0.5,
+      "r2": -1.0362613654536275,
+      "name": "narrowband_850_fwhm20",
+      "label": "Narrowband 850 nm (FWHM 20 nm)",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "Ta2O5",
+        "AlN",
+        "Ta2O5",
+        "MgF2",
+        "Ta2O5",
+        "MgF2",
+        "Ta2O5",
+        "MgF2",
+        "Ta2O5",
+        "Ag"
+      ],
+      "thicknesses": [
+        430.0,
+        390.0,
+        430.0,
+        490.0,
+        500.0,
+        80.0,
+        420.0,
+        400.0,
+        380.0,
+        490.0,
+        270.0,
+        230.0
+      ]
+    },
+    {
+      "mse": 0.4561070181697006,
+      "mae": 0.5,
+      "r2": -1.2129620923077988,
+      "name": "broadband_550_fwhm100",
+      "label": "Broadband 550 nm (FWHM 100 nm)",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "Ag",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        260.0,
+        220.0,
+        20.0,
+        170.0,
+        190.0
+      ]
+    },
+    {
+      "mse": 0.4341320114383813,
+      "mae": 0.5,
+      "r2": -1.357721550128185,
+      "name": "broadband_750_fwhm150",
+      "label": "Broadband 750 nm (FWHM 150 nm)",
+      "materials": [
+        "ZnSe",
+        "MgF2",
+        "Si",
+        "MgF2",
+        "Ag"
+      ],
+      "thicknesses": [
+        40.0,
+        80.0,
+        30.0,
+        100.0,
+        240.0
+      ]
+    },
+    {
+      "mse": 0.13036465911895448,
+      "mae": 0.30480029964132954,
+      "r2": 0.4785413635256509,
+      "name": "bandpass_600_900",
+      "label": "Bandpass 600\u2013900 nm",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "SiO2",
+        "TiO2"
+      ],
+      "thicknesses": [
+        160.0,
+        90.0,
+        30.0,
+        80.0,
+        30.0,
+        300.0,
+        30.0,
+        500.0,
+        330.0
+      ]
+    },
+    {
+      "mse": 0.08301958443344941,
+      "mae": 0.25495666602218875,
+      "r2": 0.662483203636522,
+      "name": "steep_longpass_500_s10",
+      "label": "Steep Longpass 500 nm (edge 10 nm)",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        150.0,
+        70.0,
+        20.0,
+        80.0,
+        20.0,
+        50.0,
+        30.0
+      ]
+    },
+    {
+      "mse": 0.06594199531171684,
+      "mae": 0.20930933780462718,
+      "r2": 0.7319122812368744,
+      "name": "steep_longpass_700_s10",
+      "label": "Steep Longpass 700 nm (edge 10 nm)",
+      "materials": [
+        "ZnSe",
+        "MgF2",
+        "Si",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "TiO2"
+      ],
+      "thicknesses": [
+        40.0,
+        90.0,
+        40.0,
+        100.0,
+        40.0,
+        370.0,
+        380.0
+      ]
+    },
+    {
+      "mse": 0.4154295276019071,
+      "mae": 0.5663293554755539,
+      "r2": -0.6889321264115476,
+      "name": "steep_shortpass_600_s10",
+      "label": "Steep Shortpass 600 nm (edge 10 nm)",
+      "materials": [
+        "AlN",
+        "MgF2",
+        "TiO2",
+        "MgF2",
+        "Ta2O5"
+      ],
+      "thicknesses": [
+        430.0,
+        340.0,
+        100.0,
+        340.0,
+        120.0
+      ]
+    },
+    {
+      "mse": 0.13405445127837437,
+      "mae": 0.3120424412218897,
+      "r2": 0.45500053701171084,
+      "name": "steep_shortpass_780_s10",
+      "label": "Steep Shortpass 780 nm (edge 10 nm)",
+      "materials": [
+        "Al2O3",
+        "TiN",
+        "Al2O3",
+        "TiO2",
+        "MgF2",
+        "Ta2O5"
+      ],
+      "thicknesses": [
+        500.0,
+        10.0,
+        80.0,
+        100.0,
+        180.0,
+        120.0
+      ]
+    },
+    {
+      "mse": 0.12598074511043408,
+      "mae": 0.2906257940788056,
+      "r2": 0.4960770195596832,
+      "name": "longpass_600",
+      "label": "Longpass 600 nm",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        170.0,
+        70.0,
+        30.0,
+        80.0,
+        30.0,
+        310.0,
+        20.0
+      ]
+    },
+    {
+      "mse": 0.14233659215243769,
+      "mae": 0.32180051387605707,
+      "r2": 0.4306536313918531,
+      "name": "shortpass_780",
+      "label": "Shortpass 780 nm",
+      "materials": [
+        "Al2O3",
+        "TiN",
+        "Al2O3",
+        "TiO2",
+        "MgF2",
+        "Ta2O5"
+      ],
+      "thicknesses": [
+        500.0,
+        10.0,
+        90.0,
+        90.0,
+        180.0,
+        120.0
+      ]
+    },
+    {
+      "mse": 0.015404875380925451,
+      "mae": 0.10409646751562605,
+      "r2": 0.9374894525670191,
+      "name": "notch_532_fwhm10",
+      "label": "Notch 532 nm (FWHM 10 nm)",
+      "materials": [
+        "SiO2",
+        "Al2O3",
+        "AlN",
+        "MgO",
+        "SiO2",
+        "MgO",
+        "ZnO",
+        "MgO",
+        "AlN",
+        "MgO",
+        "AlN"
+      ],
+      "thicknesses": [
+        360.0,
+        340.0,
+        200.0,
+        330.0,
+        270.0,
+        320.0,
+        190.0,
+        230.0,
+        500.0,
+        230.0,
+        500.0
+      ]
+    },
+    {
+      "mse": 0.015485655795052887,
+      "mae": 0.10795785796550747,
+      "r2": 0.9363355463943759,
+      "name": "notch_633_fwhm15",
+      "label": "Notch 633 nm (FWHM 15 nm)",
+      "materials": [
+        "MgF2",
+        "SiO2",
+        "Al2O3",
+        "MgO",
+        "HfO2",
+        "MgO",
+        "HfO2",
+        "MgO",
+        "AlN",
+        "Al2O3",
+        "HfO2"
+      ],
+      "thicknesses": [
+        500.0,
+        390.0,
+        390.0,
+        370.0,
+        390.0,
+        270.0,
+        380.0,
+        470.0,
+        420.0,
+        290.0,
+        380.0
+      ]
+    },
+    {
+      "mse": 0.010089737902795508,
+      "mae": 0.08105274517814673,
+      "r2": 0.9584618356454645,
+      "name": "notch_785_fwhm10",
+      "label": "Notch 785 nm (FWHM 10 nm)",
+      "materials": [
+        "SiO2"
+      ],
+      "thicknesses": [
+        90.0
+      ]
+    },
+    {
+      "mse": 0.024751751347601464,
+      "mae": 0.11758424780978886,
+      "r2": 0.900992994609873,
+      "name": "bandstop_520_550",
+      "label": "Bandstop 520\u2013550 nm",
+      "materials": [
+        "SiO2",
+        "AlN",
+        "MgF2",
+        "AlN",
+        "MgF2",
+        "AlN",
+        "MgF2",
+        "AlN",
+        "MgF2",
+        "MgO",
+        "AlN"
+      ],
+      "thicknesses": [
+        360.0,
+        200.0,
+        300.0,
+        210.0,
+        290.0,
+        220.0,
+        270.0,
+        220.0,
+        280.0,
+        320.0,
+        470.0
+      ]
+    },
+    {
+      "mse": 0.07394568576627704,
+      "mae": 0.23231565561033798,
+      "r2": 0.6999802906996624,
+      "name": "dichroic_edge_650_s5",
+      "label": "Dichroic Edge 650 nm (edge 5 nm)",
+      "materials": [
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        30.0,
+        90.0,
+        50.0,
+        90.0,
+        40.0,
+        320.0,
+        40.0
+      ]
+    },
+    {
+      "mse": 0.08348494366917335,
+      "mae": 0.2554634929573588,
+      "r2": 0.6612766752918099,
+      "name": "dichroic_edge_500_s5",
+      "label": "Dichroic Edge 500 nm (edge 5 nm)",
+      "materials": [
+        "Ta2O5",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        150.0,
+        70.0,
+        20.0,
+        80.0,
+        20.0,
+        50.0,
+        30.0
+      ]
+    },
+    {
+      "mse": 0.49293885350739886,
+      "mae": 0.5,
+      "r2": -1.0290655298204787,
+      "name": "dichroic_bp_500_600_s5",
+      "label": "Dichroic Bandpass 500\u2013600 nm (edge 5 nm)",
+      "materials": [
+        "Ge",
+        "MgF2",
+        "Ag"
+      ],
+      "thicknesses": [
+        10.0,
+        250.0,
+        100.0
+      ]
+    },
+    {
+      "mse": 0.09825471130719925,
+      "mae": 0.24940638318636382,
+      "r2": -0.5646362044648467,
+      "name": "nd_od0.3",
+      "label": "Neutral Density OD 0.3 (T=50.1%)",
+      "materials": [
+        "MgF2"
+      ],
+      "thicknesses": [
+        90.0
+      ]
+    },
+    {
+      "mse": 0.19659902319961284,
+      "mae": 0.34188611699158106,
+      "r2": -6.863960927762993,
+      "name": "nd_od0.5",
+      "label": "Neutral Density OD 0.5 (T=31.6%)",
+      "materials": [
+        "MgF2"
+      ],
+      "thicknesses": [
+        90.0
+      ]
+    },
+    {
+      "mse": 0.35494282941125144,
+      "mae": 0.45000000000000007,
+      "r2": -140.97713172450696,
+      "name": "nd_od1.0",
+      "label": "Neutral Density OD 1.0 (T=10.0%)",
+      "materials": [
+        "MgF2"
+      ],
+      "thicknesses": [
+        90.0
+      ]
+    },
+    {
+      "mse": 0.28377223398316204,
+      "mae": 0.5,
+      "r2": -7.402530733345211,
+      "name": "nd_refl_od0.5",
+      "label": "Reflective ND OD 0.5 (T=31.6%)",
+      "materials": [
+        "Al",
+        "Ag"
+      ],
+      "thicknesses": [
+        10.0,
+        20.0
+      ]
+    },
+    {
+      "mse": 0.41000000000000014,
+      "mae": 0.5000000000000001,
+      "r2": -1.562499999988722,
+      "name": "nd_refl_od1.0",
+      "label": "Reflective ND OD 1.0 (T=10.0%)",
+      "materials": [
+        "Ta2O5",
+        "Ag"
+      ],
+      "thicknesses": [
+        80.0,
+        70.0
+      ]
+    },
+    {
+      "mse": 0.22194924565730179,
+      "mae": 0.4253875547007397,
+      "r2": 0.030012315760299835,
+      "name": "multi_bp_450-500_600-650_800-850",
+      "label": "Multi-Bandpass 450\u2013500, 600\u2013650, 800\u2013850 nm",
+      "materials": [
+        "Si",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "TiO2",
+        "MgF2",
+        "TiO2"
+      ],
+      "thicknesses": [
+        30.0,
+        380.0,
+        30.0,
+        280.0,
+        100.0,
+        70.0,
+        90.0
+      ]
+    },
+    {
+      "mse": 0.48587770701480193,
+      "mae": 0.5,
+      "r2": -1.0598712492268776,
+      "name": "multi_bp_500-540_620-660",
+      "label": "Multi-Bandpass 500\u2013540, 620\u2013660 nm",
+      "materials": [
+        "Ge",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "SiO2",
+        "Ag"
+      ],
+      "thicknesses": [
+        10.0,
+        270.0,
+        40.0,
+        250.0,
+        450.0,
+        500.0
+      ]
+    },
+    {
+      "mse": 0.27498097833992546,
+      "mae": 0.4483380322864736,
+      "r2": -0.11793740601756397,
+      "name": "hot_mirror_700",
+      "label": "Hot Mirror (IR cut-off 700 nm)",
+      "materials": [
+        "MgO",
+        "Si3N4",
+        "MgF2",
+        "TiO2"
+      ],
+      "thicknesses": [
+        490.0,
+        280.0,
+        170.0,
+        110.0
+      ]
+    },
+    {
+      "mse": 0.06594199531171684,
+      "mae": 0.20930933780462718,
+      "r2": 0.7319122812368744,
+      "name": "cold_mirror_700",
+      "label": "Cold Mirror (vis reflect, IR pass at 700 nm)",
+      "materials": [
+        "ZnSe",
+        "MgF2",
+        "Si",
+        "MgF2",
+        "ZnSe",
+        "MgF2",
+        "TiO2"
+      ],
+      "thicknesses": [
+        40.0,
+        90.0,
+        40.0,
+        100.0,
+        40.0,
+        370.0,
+        380.0
+      ]
+    },
+    {
+      "mse": 0.18377051128631985,
+      "mae": 0.3644358546425592,
+      "r2": 0.1871273655398089,
+      "name": "lvf_500_900",
+      "label": "Linear Variable Filter 500\u2013900 nm",
+      "materials": [
+        "Ta2O5",
+        "Ge",
+        "MgF2",
+        "ZnSe"
+      ],
+      "thicknesses": [
+        80.0,
+        20.0,
+        260.0,
+        30.0
+      ]
+    }
+  ],
   "model": "optogpt",
-  "checkpoint": "/home/ec2-user/.cache/huggingface/hub/models--mataigao--optogpt/snapshots/5477628ec5f59ce4d4ced818b95b3522c312e759/optogpt.pt",
-  "val_path": "./data/max_len_20/val/part_000.arrow",
   "n_samples": 10000,
-  "mae": 0.06716072870541902,
-  "mse": 0.026231717183088973,
-  "r2": 0.6807419960345018,
-  "median_mae": 0.03643984635864918,
-  "p90_mae": 0.1964961442344711,
-  "decode_time_s": 371.36932069202885
+  "decode_time_s": 437.9456989299506,
+  "decoding": "greedy"
 }
