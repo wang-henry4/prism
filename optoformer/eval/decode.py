@@ -180,9 +180,9 @@ def beam_search_decode(
                 for k in range(K):
                     tok = token_idx[k].item()
                     if tok == vocab.EOS:
-                        seq_len = new_mat[k].size(0)  # includes BOS + tokens + EOS
+                        n_scored = step + 1  # number of tokens that contributed log-probs
                         completed_scores.append(new_scores[k].item())
-                        completed_lengths.append(seq_len)
+                        completed_lengths.append(n_scored)
                         completed_mat.append(new_mat[k])
                         completed_thk.append(new_thk[k])
                         new_active[k] = False
@@ -199,9 +199,9 @@ def beam_search_decode(
             # Add remaining active beams to completed
             for k in range(K):
                 if beam_active[k]:
-                    seq_len = beam_mat[k].size(0)
+                    n_scored = beam_mat[k].size(0) - 1  # exclude BOS
                     completed_scores.append(beam_scores[k].item())
-                    completed_lengths.append(seq_len)
+                    completed_lengths.append(n_scored)
                     completed_mat.append(beam_mat[k])
                     completed_thk.append(beam_thk[k])
 
@@ -318,7 +318,7 @@ def beam_search_decode_topk(
                     tok = token_idx[k].item()
                     if tok == vocab.EOS:
                         completed_scores.append(new_scores[k].item())
-                        completed_lengths.append(new_mat[k].size(0))
+                        completed_lengths.append(step + 1)  # tokens that contributed log-probs
                         completed_mat.append(new_mat[k])
                         completed_thk.append(new_thk[k])
                         new_active[k] = False
@@ -335,7 +335,7 @@ def beam_search_decode_topk(
             for k in range(K):
                 if beam_active[k]:
                     completed_scores.append(beam_scores[k].item())
-                    completed_lengths.append(beam_mat[k].size(0))
+                    completed_lengths.append(beam_mat[k].size(0) - 1)  # exclude BOS
                     completed_mat.append(beam_mat[k])
                     completed_thk.append(beam_thk[k])
 

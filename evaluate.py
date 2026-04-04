@@ -21,7 +21,7 @@ import torch
 
 from optoformer.constants import N_SPECTRUM
 from optoformer.data.dataset import Vocab
-from optoformer.eval.decode import beam_search_decode, beam_search_decode_topk, greedy_decode
+from optoformer.eval.decode import beam_search_decode_topk, greedy_decode
 from optoformer.eval.metrics import SpectrumMetrics
 from optoformer.eval.targets import HANDCRAFTED_TARGETS
 from optoformer.eval.visualize import plot_beam_candidates, plot_design_comparison, plot_grad_stats, plot_loss_components, plot_loss_curve, plot_scatter
@@ -89,65 +89,122 @@ def main() -> None:
     mats_gt    = table["materials"].to_pylist()[:n_samples]
     thks_gt    = table["thicknesses"].to_pylist()[:n_samples]
 
-    # ── Phase 1: decode ──────────────────────────────────────────────────────
+    # ── Phase 1a: greedy decode ────────────────────────────────────────────
     decode_batch_size = 512
-    all_pred_mats, all_pred_thks = [], []
-    decode_fn = beam_search_decode if args.beam_width > 1 else greedy_decode
+    all_greedy_mats, all_greedy_thks = [], []
 
-    strategy = f"beam search (width={args.beam_width})" if args.beam_width > 1 else "greedy"
-    print(f"Decoding {n_samples} samples with {strategy}...")
+    print(f"Greedy decoding {n_samples} samples...")
     decode_start = time.perf_counter()
-
     for start in range(0, n_samples, decode_batch_size):
-        end        = min(start + decode_batch_size, n_samples)
-        spec_batch = spectra_gt[start:end]
-
-        if args.beam_width > 1:
-            mat_ids_list, thk_list = decode_fn(
-                model, spec_batch, vocab, beam_width=args.beam_width,
-                length_penalty=args.length_penalty, device=device,
-            )
-        else:
-            mat_ids_list, thk_list = decode_fn(model, spec_batch, vocab, device=device)
-
+        end = min(start + decode_batch_size, n_samples)
+        mat_ids_list, thk_list = greedy_decode(
+            model, spectra_gt[start:end], vocab, device=device,
+        )
         for mat_ids, thk_vals in zip(mat_ids_list, thk_list):
             mat_names = [vocab.decode(i) for i in mat_ids if i not in (vocab.PAD, vocab.BOS, vocab.EOS)]
-            thk_nm    = [max(5.0, t) for t in thk_vals]
-            all_pred_mats.append(mat_names)
-            all_pred_thks.append(thk_nm)
+            all_greedy_mats.append(mat_names)
+            all_greedy_thks.append([max(5.0, t) for t in thk_vals])
 
         elapsed = time.perf_counter() - decode_start
-        samples_per_sec = end / elapsed
-        eta = (n_samples - end) / samples_per_sec if samples_per_sec > 0 else 0
-        print(
-            f"\r  decoded {end}/{n_samples}  "
-            f"({samples_per_sec:.0f} samples/s  ETA {eta:.0f}s)",
-            end="", flush=True,
+        sps = end / elapsed
+        print(f"\r  greedy {end}/{n_samples}  ({sps:.0f} s/s  ETA {(n_samples - end) / sps:.0f}s)",
+              end="", flush=True)
+    greedy_time = time.perf_counter() - decode_start
+    print(f"\r  greedy {n_samples}/{n_samples} in {greedy_time:.1f}s  "
+          f"({n_samples / greedy_time:.0f} s/s)      ")
+
+    # ── Phase 1b: beam search decode ────────────────────────────────────────
+    all_topk_candidates: list[list[dict]] = []
+
+    print(f"Beam search decoding {n_samples} samples (width={args.beam_width})...")
+    decode_start = time.perf_counter()
+    for start in range(0, n_samples, decode_batch_size):
+        end = min(start + decode_batch_size, n_samples)
+        batch_topk = beam_search_decode_topk(
+            model, spectra_gt[start:end], vocab, beam_width=args.beam_width,
+            length_penalty=args.length_penalty, device=device,
         )
+        all_topk_candidates.extend(batch_topk)
 
-    decode_time = time.perf_counter() - decode_start
-    print(f"\r  decoded {n_samples}/{n_samples} in {decode_time:.1f}s  "
-          f"({n_samples / decode_time:.0f} samples/s)      ")
+        elapsed = time.perf_counter() - decode_start
+        sps = end / elapsed
+        print(f"\r  beam   {end}/{n_samples}  ({sps:.0f} s/s  ETA {(n_samples - end) / sps:.0f}s)",
+              end="", flush=True)
+    beam_time = time.perf_counter() - decode_start
+    print(f"\r  beam   {n_samples}/{n_samples} in {beam_time:.1f}s  "
+          f"({n_samples / beam_time:.0f} s/s)      ")
 
-    # ── Phase 2: TMM re-simulation (parallel CPU) ────────────────────────────
-    print(f"Re-simulating {n_samples} structures with {args.workers} workers...")
+    # Prepare beam candidate materials/thicknesses
+    for candidates in all_topk_candidates:
+        for c in candidates:
+            c["materials"] = [vocab.decode(m) for m in c["mat_ids"]]
+            c["thicknesses"] = [max(5.0, t) for t in c["thk_vals"]]
+
+    # ── Phase 2: TMM re-simulation (greedy + all beam candidates) ────────
+    sim_jobs_greedy = list(zip(all_greedy_mats, all_greedy_thks))
+    sim_jobs_beam: list[tuple[list[str], list[float]]] = []
+    beam_job_map: list[tuple[int, int]] = []
+    for i, candidates in enumerate(all_topk_candidates):
+        for j, c in enumerate(candidates):
+            sim_jobs_beam.append((c["materials"], c["thicknesses"]))
+            beam_job_map.append((i, j))
+
+    all_sim_jobs = sim_jobs_greedy + sim_jobs_beam
+    print(f"Re-simulating {len(all_sim_jobs)} structures "
+          f"({n_samples} greedy + {len(sim_jobs_beam)} beam) with {args.workers} workers...")
     with Pool(
         processes=args.workers,
         initializer=_tmm_worker_init,
         initargs=(args.nk_dir,),
     ) as pool:
-        all_pred_spectra = pool.map(
-            _tmm_simulate_one, zip(all_pred_mats, all_pred_thks)
-        )
+        all_sim_results = pool.map(_tmm_simulate_one, all_sim_jobs)
 
+    greedy_spectra = all_sim_results[:n_samples]
+    beam_sim_results = all_sim_results[n_samples:]
+
+    for idx, (i, j) in enumerate(beam_job_map):
+        all_topk_candidates[i][j]["spectrum"] = beam_sim_results[idx]
+
+    # ── Phase 3: metrics ─────────────────────────────────────────────────────
     all_gt_spectra = spectra_gt[:n_samples].tolist()
-    pred_arr   = np.array(all_pred_spectra)
     target_arr = np.array(all_gt_spectra)
+    greedy_arr = np.array(greedy_spectra)
 
-    metrics = SpectrumMetrics.compute(pred_arr, target_arr)
+    # Oracle-best and beam-top-1 per sample
+    oracle_pred, top1_pred = [], []
+    all_pred_mats, all_pred_thks = [], []  # oracle-best designs for plots
+    for i, candidates in enumerate(all_topk_candidates):
+        gt = np.array(all_gt_spectra[i])
+        best_mse, best_idx = float("inf"), 0
+        for j, c in enumerate(candidates):
+            c_mse = float(np.mean((np.array(c["spectrum"]) - gt) ** 2))
+            if c_mse < best_mse:
+                best_mse, best_idx = c_mse, j
+        oracle_pred.append(candidates[best_idx]["spectrum"])
+        all_pred_mats.append(candidates[best_idx]["materials"])
+        all_pred_thks.append(candidates[best_idx]["thicknesses"])
+        top1_pred.append(candidates[0]["spectrum"])
+
+    oracle_arr = np.array(oracle_pred)
+    top1_arr = np.array(top1_pred)
+    pred_arr = oracle_arr  # use oracle-best for plots
+
+    greedy_metrics = SpectrumMetrics.compute(greedy_arr, target_arr)
+    top1_metrics   = SpectrumMetrics.compute(top1_arr, target_arr)
+    oracle_metrics = SpectrumMetrics.compute(oracle_arr, target_arr)
+    metrics = oracle_metrics
+
     print(
-        f"Inverse eval (TMM re-sim)  "
-        f"MSE={metrics['mse']:.6f}  MAE={metrics['mae']:.6f}  R²={metrics['r2']:.4f}"
+        f"Greedy         "
+        f"MSE={greedy_metrics['mse']:.6f}  MAE={greedy_metrics['mae']:.6f}  R²={greedy_metrics['r2']:.4f}"
+    )
+    print(
+        f"Beam top-1     "
+        f"MSE={top1_metrics['mse']:.6f}  MAE={top1_metrics['mae']:.6f}  R²={top1_metrics['r2']:.4f}"
+    )
+    print(
+        f"Oracle best    "
+        f"MSE={oracle_metrics['mse']:.6f}  MAE={oracle_metrics['mae']:.6f}  R²={oracle_metrics['r2']:.4f}"
     )
 
     os.makedirs(args.plot_dir, exist_ok=True)
@@ -247,7 +304,7 @@ def main() -> None:
         plot_grad_stats(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "grad_stats.png"))
 
     with open(os.path.join(args.plot_dir, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
+        json.dump({"greedy": greedy_metrics, "top1": top1_metrics, "oracle": oracle_metrics}, f, indent=2)
 
 
 if __name__ == "__main__":
