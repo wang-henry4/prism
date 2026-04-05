@@ -109,11 +109,15 @@ class InverseModel(nn.Module):
         n_spectrum: int = N_SPECTRUM,
         thk_head_hidden_layers: int = 2,
         log_space_thk: bool = True,
+        rope_scale_method: str = "none",
+        rope_scale_factor: float = 1.0,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
         self.log_space_thk = log_space_thk
+        self.rope_scale_method = rope_scale_method
+        self.rope_scale_factor = rope_scale_factor
 
         self.spectrum_proj = SpectrumProjection(d_model, n_spectrum)
         self.embedding = MaterialEmbedding(vocab_size, d_model)
@@ -181,7 +185,7 @@ class InverseModel(nn.Module):
         positions = torch.cat([spec_pos, mat_pos], dim=1)
 
         for layer in self.layers:
-            x = layer(x, mask, positions)
+            x = layer(x, mask, positions, self.rope_scale_method, self.rope_scale_factor)
 
         x = self.norm(x)
 

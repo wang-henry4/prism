@@ -63,6 +63,13 @@ def main() -> None:
                         help="Beam search length penalty (0=none, 1=full per-token)")
     parser.add_argument("--workers",   type=int, default=8)
     parser.add_argument("--plot_dir",   default="./plots/eval")
+    parser.add_argument("--rope_scale_method", default="none",
+                        choices=["none", "pi", "ntk", "dynamic_ntk", "yarn"],
+                        help="RoPE context extension method for OOD thickness evaluation")
+    parser.add_argument("--rope_scale_factor", type=float, default=1.0,
+                        help="RoPE scale factor (e.g. 2.0 for 2x OOD thickness range)")
+    parser.add_argument("--min_cum_depth", type=float, default=0.0,
+                        help="Only evaluate samples with cumulative depth (nm) >= this threshold")
     args = parser.parse_args()
 
     ckpt   = _load_checkpoint(args.checkpoint)
@@ -78,16 +85,32 @@ def main() -> None:
         dropout=config.get("dropout", 0.1),
         thk_head_hidden_layers=config.get("thk_head_hidden_layers", 2),
         log_space_thk=config.get("log_space_thk", True),
+        rope_scale_method=args.rope_scale_method,
+        rope_scale_factor=args.rope_scale_factor,
     )
     model.load_state_dict(ckpt["model_state"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device).eval()
 
+    if args.rope_scale_method != "none":
+        print(f"RoPE context extension: {args.rope_scale_method} (factor={args.rope_scale_factor})")
+
     table      = feather.read_table(args.val_path, memory_map=True)
-    n_samples  = min(args.n_samples, len(table))
-    spectra_gt = torch.tensor(table["spectra"].to_pylist()[:n_samples], dtype=torch.float32)
-    mats_gt    = table["materials"].to_pylist()[:n_samples]
-    thks_gt    = table["thicknesses"].to_pylist()[:n_samples]
+    all_spectra = table["spectra"].to_pylist()
+    all_mats    = table["materials"].to_pylist()
+    all_thks    = table["thicknesses"].to_pylist()
+
+    if args.min_cum_depth > 0:
+        keep = [i for i, t in enumerate(all_thks) if sum(t) >= args.min_cum_depth]
+        all_spectra = [all_spectra[i] for i in keep]
+        all_mats    = [all_mats[i] for i in keep]
+        all_thks    = [all_thks[i] for i in keep]
+        print(f"Filtered to {len(keep)} samples with cumulative depth >= {args.min_cum_depth} nm")
+
+    n_samples  = min(args.n_samples, len(all_spectra))
+    spectra_gt = torch.tensor(all_spectra[:n_samples], dtype=torch.float32)
+    mats_gt    = all_mats[:n_samples]
+    thks_gt    = all_thks[:n_samples]
 
     # ── Phase 1a: greedy decode ────────────────────────────────────────────
     decode_batch_size = 512
@@ -303,8 +326,41 @@ def main() -> None:
         plot_loss_components(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "loss_components.png"))
         plot_grad_stats(ckpt["loss_history"], save_path=os.path.join(args.plot_dir, "grad_stats.png"))
 
+    # ── Sequence length statistics ─────────────────────────────────────────
+    def _length_stats(lengths: list[int]) -> dict:
+        arr = np.array(lengths)
+        hist = {}
+        for l in arr:
+            hist[str(l)] = hist.get(str(l), 0) + 1
+        return {
+            "mean": float(arr.mean()),
+            "std": float(arr.std()),
+            "min": int(arr.min()),
+            "max": int(arr.max()),
+            "median": float(np.median(arr)),
+            "histogram": dict(sorted(hist.items(), key=lambda x: int(x[0]))),
+        }
+
+    gt_lengths = [len(m) for m in mats_gt]
+    greedy_lengths = [len(m) for m in all_greedy_mats]
+    oracle_lengths = [len(m) for m in all_pred_mats]
+
+    length_stats = {
+        "ground_truth": _length_stats(gt_lengths),
+        "greedy": _length_stats(greedy_lengths),
+        "oracle": _length_stats(oracle_lengths),
+    }
+
+    print(f"\nSequence lengths (layers):")
+    for name, stats in length_stats.items():
+        print(f"  {name:14s}  mean={stats['mean']:.1f}  std={stats['std']:.1f}  "
+              f"min={stats['min']}  max={stats['max']}  median={stats['median']:.0f}")
+
     with open(os.path.join(args.plot_dir, "metrics.json"), "w") as f:
-        json.dump({"greedy": greedy_metrics, "top1": top1_metrics, "oracle": oracle_metrics}, f, indent=2)
+        json.dump({
+            "greedy": greedy_metrics, "top1": top1_metrics, "oracle": oracle_metrics,
+            "sequence_lengths": length_stats,
+        }, f, indent=2)
 
 
 if __name__ == "__main__":
