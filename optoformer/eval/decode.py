@@ -14,7 +14,7 @@ def greedy_decode(
     model,
     spectrum: Tensor,       # [B, 142]
     vocab,
-    max_len: int = 12,      # max sequence length including BOS
+    max_len: int = 101,      # max sequence length including BOS
     device: torch.device | None = None,
 ) -> tuple[list[list[int]], list[list[float]]]:
     """
@@ -82,7 +82,7 @@ def beam_search_decode(
     spectrum: Tensor,       # [B, 142]
     vocab,
     beam_width: int = 5,
-    max_len: int = 12,
+    max_len: int = 101,
     length_penalty: float = 0.3,
     device: torch.device | None = None,
 ) -> tuple[list[list[int]], list[list[float]]]:
@@ -236,7 +236,7 @@ def beam_search_decode_topk(
     spectrum: Tensor,       # [B, 142]
     vocab,
     beam_width: int = 5,
-    max_len: int = 12,
+    max_len: int = 101,
     length_penalty: float = 0.3,
     device: torch.device | None = None,
 ) -> list[list[dict]]:
@@ -379,7 +379,7 @@ def sample_decode(
     n_samples: int = 8,             # G rollouts per spectrum
     temperature: float = 1.0,       # material sampling temperature
     thk_noise_std: float = 5.0,     # Gaussian noise σ for thickness (nm)
-    max_len: int = 12,              # max sequence length including BOS
+    max_len: int = 101,              # max sequence length including BOS
     device: torch.device | None = None,
 ) -> dict:
     """

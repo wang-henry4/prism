@@ -126,7 +126,7 @@ def main() -> None:
         for mat_ids, thk_vals in zip(mat_ids_list, thk_list):
             mat_names = [vocab.decode(i) for i in mat_ids if i not in (vocab.PAD, vocab.BOS, vocab.EOS)]
             all_greedy_mats.append(mat_names)
-            all_greedy_thks.append([max(5.0, t) for t in thk_vals])
+            all_greedy_thks.append([max(1.0, t) for t in thk_vals])
 
         elapsed = time.perf_counter() - decode_start
         sps = end / elapsed
@@ -161,7 +161,7 @@ def main() -> None:
     for candidates in all_topk_candidates:
         for c in candidates:
             c["materials"] = [vocab.decode(m) for m in c["mat_ids"]]
-            c["thicknesses"] = [max(5.0, t) for t in c["thk_vals"]]
+            c["thicknesses"] = [max(1.0, t) for t in c["thk_vals"]]
 
     # ── Phase 2: TMM re-simulation (greedy + all beam candidates) ────────
     sim_jobs_greedy = list(zip(all_greedy_mats, all_greedy_thks))
@@ -272,7 +272,7 @@ def main() -> None:
         for i, candidates in enumerate(all_topk):
             for j, c in enumerate(candidates):
                 mat_names = [vocab.decode(m) for m in c["mat_ids"]]
-                thk_nm = [max(5.0, t) for t in c["thk_vals"]]
+                thk_nm = [max(1.0, t) for t in c["thk_vals"]]
                 c["materials"] = mat_names
                 c["thicknesses"] = thk_nm
                 sim_jobs.append((mat_names, thk_nm))
@@ -356,10 +356,63 @@ def main() -> None:
         print(f"  {name:14s}  mean={stats['mean']:.1f}  std={stats['std']:.1f}  "
               f"min={stats['min']}  max={stats['max']}  median={stats['median']:.0f}")
 
+    # ── Thickness distribution statistics ─────────────────────────────────
+    def _thickness_stats(thk_lists: list[list[float]]) -> dict:
+        all_thk = [t for seq in thk_lists for t in seq]
+        if not all_thk:
+            return {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0,
+                    "median": 0.0, "p5": 0.0, "p25": 0.0, "p75": 0.0, "p95": 0.0,
+                    "n_values": 0, "histogram": {}}
+        arr = np.array(all_thk)
+        # Histogram with 10nm bins
+        bin_edges = np.arange(0, arr.max() + 11, 10)
+        counts, _ = np.histogram(arr, bins=bin_edges)
+        hist = {f"{int(bin_edges[i])}-{int(bin_edges[i+1])}": int(counts[i])
+                for i in range(len(counts)) if counts[i] > 0}
+        # Cumulative depth per sample
+        cum_depths = np.array([sum(seq) for seq in thk_lists if seq])
+        return {
+            "mean": float(arr.mean()),
+            "std": float(arr.std()),
+            "min": float(arr.min()),
+            "max": float(arr.max()),
+            "median": float(np.median(arr)),
+            "p5": float(np.percentile(arr, 5)),
+            "p25": float(np.percentile(arr, 25)),
+            "p75": float(np.percentile(arr, 75)),
+            "p95": float(np.percentile(arr, 95)),
+            "n_values": len(all_thk),
+            "histogram": hist,
+            "cumulative_depth": {
+                "mean": float(cum_depths.mean()),
+                "std": float(cum_depths.std()),
+                "min": float(cum_depths.min()),
+                "max": float(cum_depths.max()),
+                "median": float(np.median(cum_depths)),
+            } if len(cum_depths) > 0 else {},
+        }
+
+    thickness_stats = {
+        "ground_truth": _thickness_stats(thks_gt),
+        "greedy": _thickness_stats(all_greedy_thks),
+        "oracle": _thickness_stats([all_pred_thks[i] for i in range(len(all_pred_thks))]),
+    }
+
+    print(f"\nThickness distribution (nm):")
+    for name, stats in thickness_stats.items():
+        print(f"  {name:14s}  mean={stats['mean']:.1f}  std={stats['std']:.1f}  "
+              f"min={stats['min']:.1f}  max={stats['max']:.1f}  "
+              f"median={stats['median']:.1f}  [p5={stats['p5']:.1f}, p95={stats['p95']:.1f}]")
+        if stats.get("cumulative_depth"):
+            cd = stats["cumulative_depth"]
+            print(f"  {'':14s}  cum_depth: mean={cd['mean']:.0f}  "
+                  f"min={cd['min']:.0f}  max={cd['max']:.0f}")
+
     with open(os.path.join(args.plot_dir, "metrics.json"), "w") as f:
         json.dump({
             "greedy": greedy_metrics, "top1": top1_metrics, "oracle": oracle_metrics,
             "sequence_lengths": length_stats,
+            "thickness_distribution": thickness_stats,
         }, f, indent=2)
 
 
