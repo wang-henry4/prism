@@ -1,11 +1,11 @@
 # Baselines
 
-Baseline evaluations on the `max_len_20_10nm` val set (10,000 samples, 10 nm thickness steps, 10–500 nm, up to 20 layers) and 29 handcrafted practical filter targets.
+Baseline evaluations on the `max_len_20_10nm` val set and 29 handcrafted practical filter targets.
 
 ## Evaluation Protocol
 
-1. Model receives a target spectrum (142 floats: 71 R + 71 T, 400–1100 nm)
-2. Model autoregressively predicts a thin-film structure (materials + thicknesses)
+1. Model/optimizer receives a target spectrum (142 floats: 71 R + 71 T, 400–1100 nm)
+2. Produces a thin-film structure (materials + thicknesses)
 3. Predicted structure is re-simulated via TMM (transfer matrix method)
 4. Re-simulated spectrum is compared against the target
 
@@ -13,48 +13,61 @@ Structures are **not** compared directly — only spectral fidelity matters, sin
 
 ## Val Set Results
 
-| Model | Decoding | MAE ↓ | MSE ↓ | R² ↑ |
-|-------|----------|-------|-------|------|
-| OptoGPT | greedy | 0.0585 | 0.0218 | 0.715 |
+| Method | Type | Val Samples | MAE ↓ | MSE ↓ | R² ↑ |
+|--------|------|-------------|-------|-------|------|
+| OptoGPT | Neural (autoregressive) | 10,000 | 0.0585 | 0.0218 | 0.715 |
+| Differentiable TMM | Gradient optimization | 1,000 | 0.0306 | 0.0037 | 0.954 |
+| Simulated Annealing | Global stochastic search | 1,000 | 0.0163 | 0.0017 | 0.978 |
 
 ## Handcrafted Target Results
 
 29 practical optical filter spectra (narrowband, broadband, edge, notch, dichroic, neutral density, multi-bandpass, hot/cold mirror, linear variable).
 
-| Model | Decoding | Mean MAE ↓ | Mean MSE ↓ | Mean R² ↑ |
-|-------|----------|------------|------------|-----------|
-| OptoGPT | greedy | 0.3499 | 0.2332 | -5.40 |
+| Method | Type | Mean MAE ↓ | Mean MSE ↓ | Mean R² ↑ |
+|--------|------|------------|------------|-----------|
+| OptoGPT | Neural (autoregressive) | 0.3499 | 0.2332 | -5.40 |
+| Differentiable TMM | Gradient optimization | 0.1864 | 0.0863 | 0.573 |
+| Simulated Annealing | Global stochastic search | 0.1216 | 0.0450 | 0.788 |
 
-### OptoGPT per-category breakdown
+## Methods
 
-| Category | # Targets | Mean MAE | Mean MSE | Mean R² |
-|----------|-----------|----------|----------|---------|
-| Notch filters | 4 | 0.103 | 0.019 | 0.933 |
-| Edge filters | 6 | 0.326 | 0.157 | 0.348 |
-| Dichroic | 3 | 0.329 | 0.168 | 0.111 |
-| Hot/cold mirror | 2 | 0.329 | 0.155 | 0.307 |
-| Broadband bandpass | 3 | 0.435 | 0.253 | -0.697 |
-| Neutral density | 5 | 0.408 | 0.218 | -31.47 |
-| Multi-bandpass | 2 | 0.463 | 0.260 | -0.515 |
-| Narrowband | 3 | 0.500 | 0.250 | -1.024 |
-| Linear variable | 1 | 0.364 | 0.157 | 0.187 |
+### OptoGPT (pretrained baseline)
+Pretrained checkpoint from [huggingface.co/mataigao/optogpt](https://huggingface.co/mataigao/optogpt) (`optogpt.pt`, epoch 146). 6-layer decoder-only transformer, d_model=1024, 8 heads, d_ff=512. Vocab of 904 discrete `Material_Thickness` tokens (18 materials × 50 thickness buckets at 10 nm steps). Greedy decoding.
 
-OptoGPT only performs well on notch filters (mostly-flat spectra with a narrow dip). It fails on targets requiring precise spectral shaping (narrowband, ND, multi-bandpass all hit MAE ≈ 0.50).
+### Differentiable TMM (gradient-based inverse design)
+PyTorch-differentiable TMM implementation enabling direct gradient-based optimization. For each target spectrum: pick random materials and layer count, optimize thicknesses with L-BFGS. 32 random restarts across layer counts [3, 5, 7, 10, 14, 18], 300 L-BFGS iterations per start. No training required.
 
-## OptoGPT
+### Simulated Annealing (global stochastic search)
+Classical SA over the joint (materials, thicknesses, layer count) space. Moves: thickness perturbation (50%), material swap (20%), layer insertion (15%), layer removal (15%). Exponential temperature schedule from 0.1 to 1e-4 over 5000 steps, 8 random restarts. No training required.
 
-Pretrained checkpoint from [huggingface.co/mataigao/optogpt](https://huggingface.co/mataigao/optogpt) (`optogpt.pt`, epoch 146).
+## Runtime
 
-Architecture: 6-layer decoder-only transformer, d_model=1024, 8 heads, d_ff=512. Vocab of 904 discrete `Material_Thickness` tokens (18 materials × 50 thickness buckets at 10 nm steps, 10–500 nm). Max sequence length 22 (up to 20 layers).
+Optimization methods are per-sample (no amortization):
+
+| Method | Val (per sample) | Handcrafted (per target) |
+|--------|-----------------|--------------------------|
+| OptoGPT | ~0.04s | ~0.04s |
+| Differentiable TMM | ~50s | ~50s |
+| Simulated Annealing | ~160s | ~160s |
+
+Neural methods (OptoGPT) are orders of magnitude faster at inference, but optimization methods achieve better spectral fidelity since they directly optimize against the physics.
 
 ## Reproduce
 
 ```bash
+# OptoGPT
 python baselines/eval_optogpt.py \
     --checkpoint /path/to/optogpt.pt \
     --val_path ./data/max_len_20_10nm/val/part_000.arrow \
-    --nk_dir ./nk \
-    --plot_dir ./plots/baselines/optogpt_10nm
-```
+    --nk_dir ./nk --plot_dir ./plots/baselines/optogpt_10nm
 
-Plots saved to `plots/baselines/optogpt_10nm/`, including per-sample design comparisons, scatter plot, and per-target handcrafted results in `handcrafted/`.
+# Differentiable TMM
+python baselines/eval_optim.py --method diff_tmm \
+    --val_path ./data/max_len_20_10nm/val/part_000.arrow \
+    --nk_dir ./nk --n_val_samples 1000
+
+# Simulated Annealing
+python baselines/eval_optim.py --method sa \
+    --val_path ./data/max_len_20_10nm/val/part_000.arrow \
+    --nk_dir ./nk --n_val_samples 1000
+```
