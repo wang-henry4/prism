@@ -30,23 +30,7 @@ The model generalises to out-of-distribution sequence lengths and thickness rang
 
 ## Architecture
 
-```
-spectrum [B, 142] --> SpectrumProjection --> [SPEC] prefix token
-                                                |
-mat_ids  [B, T]  --> MaterialEmbedding  --> [tok1, tok2, ...]
-                                                |
-                         concat: [SPEC, tok1, tok2, ...] -- causal self-attention
-                         RoPE positions: [0, cumsum(thicknesses)]
-                                                |
-                                         Decoder layers x N
-                                                |
-                                    hidden [B, T, d_model]  (prefix stripped)
-                                                |
-                                   +------------+------------+
-                                   |                         |
-                               mat_head                  thk_head (MLP)
-                         log P(mat) [B,T,V]        thk_pred [B,T,V]
-```
+![PRISM Architecture](img/architecture_diagram.png)
 
 ### Spectrum prefix conditioning
 

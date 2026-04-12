@@ -12,7 +12,9 @@ venv/
 
 # Data & models (large files)
 data/**/train/*.arrow
+data/**/dev/*.arrow
 saved_models/
+
 
 # Plots
 plots/
