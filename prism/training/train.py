@@ -13,6 +13,8 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
+from prism.model.prefix_material_thk_model import InverseModel
+
 
 # ── Learning-rate schedule ─────────────────────────────────────────────────────
 
@@ -173,8 +175,6 @@ def train_inverse(
     n_train_batches = len(train_loader)
     n_dev_batches   = len(dev_loader)
 
-    log_space_thk = getattr(model, "log_space_thk", False)
-
     def _forward_loss(batch) -> tuple[Tensor, int, float, float]:
         """Returns (total_loss, ntokens, mat_loss_sum, thk_loss_sum)."""
         mat_logits, thk_pred = model(
@@ -183,15 +183,10 @@ def train_inverse(
         B, T, V = mat_logits.shape
         mat_loss = mat_criterion(mat_logits.view(B * T, V), batch.tgt_y_mat.view(-1))
         thk_mask = (batch.tgt_y_mat != pad_id).float()
-        # thk_pred is [B, T] for archs A/B/C or [B, T, vocab_size] for arch D
-        if thk_pred.dim() == 3:
-            # Gather the thickness prediction at the ground-truth material index
-            thk_pred = thk_pred.gather(-1, batch.tgt_y_mat.unsqueeze(-1)).squeeze(-1)
-        # Compare in matching space (log-space or nm)
-        thk_target = batch.tgt_y_thk
-        if log_space_thk:
-            from optoformer.model.prefix_material_thk_model import InverseModel
-            thk_target = InverseModel.nm_to_log(thk_target)
+        # Gather the thickness prediction at the ground-truth material index
+        thk_pred = thk_pred.gather(-1, batch.tgt_y_mat.unsqueeze(-1)).squeeze(-1)
+        # Compare in log-space
+        thk_target = InverseModel.nm_to_log(batch.tgt_y_thk)
         thk_loss = ((thk_pred - thk_target) ** 2 * thk_mask).sum()
         ntokens  = batch.ntokens_tgt
         total    = (mat_loss + thk_loss_weight * thk_loss) / max(ntokens, 1)

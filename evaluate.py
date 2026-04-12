@@ -19,13 +19,13 @@ import numpy as np
 import pyarrow.feather as feather
 import torch
 
-from optoformer.constants import N_SPECTRUM
-from optoformer.data.dataset import Vocab
-from optoformer.eval.decode import beam_search_decode_topk, greedy_decode
-from optoformer.eval.metrics import SpectrumMetrics
-from optoformer.eval.targets import HANDCRAFTED_TARGETS
-from optoformer.eval.visualize import plot_beam_candidates, plot_design_comparison, plot_grad_stats, plot_loss_components, plot_loss_curve, plot_scatter
-from optoformer.model.prefix_material_thk_model import InverseModel
+from prism.constants import N_SPECTRUM
+from prism.data.dataset import Vocab
+from prism.eval.decode import beam_search_decode_topk, greedy_decode
+from prism.eval.metrics import SpectrumMetrics
+from prism.eval.targets import HANDCRAFTED_TARGETS
+from prism.eval.visualize import plot_beam_candidates, plot_design_comparison, plot_grad_stats, plot_loss_components, plot_loss_curve, plot_scatter
+from prism.model.prefix_material_thk_model import InverseModel
 
 
 def _load_checkpoint(path: str):
@@ -34,12 +34,12 @@ def _load_checkpoint(path: str):
 
 def _tmm_worker_init(nk_dir: str) -> None:
     global _nk_dict
-    from optoformer.data.sim import load_nk
+    from prism.data.sim import load_nk
     _nk_dict = load_nk(nk_dir)
 
 
 def _tmm_simulate_one(args: tuple[list[str], list[float]]) -> list[float]:
-    from optoformer.data.sim import simulate
+    from prism.data.sim import simulate
     materials, thicknesses = args
     if not materials:
         return [0.0] * N_SPECTRUM
@@ -84,7 +84,6 @@ def main() -> None:
         d_ff=config.get("d_ff", 2048),
         dropout=config.get("dropout", 0.1),
         thk_head_hidden_layers=config.get("thk_head_hidden_layers", 2),
-        log_space_thk=config.get("log_space_thk", True),
         rope_scale_method=args.rope_scale_method,
         rope_scale_factor=args.rope_scale_factor,
     )

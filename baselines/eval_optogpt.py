@@ -1,7 +1,7 @@
 """
-Evaluate the pretrained OptoGPT checkpoint on optoformer val data.
+Evaluate the pretrained OptoGPT checkpoint on prism val data.
 
-Matches optoformer's evaluate.py pattern:
+Matches prism's evaluate.py pattern:
   1. Val set: greedy decode → TMM re-sim → MAE/MSE/R²
   2. Handcrafted targets: greedy decode → TMM re-sim → per-target metrics
 
@@ -31,12 +31,12 @@ sys.path.insert(0, OPTOGPT_SRC)
 
 from core.models.transformer import make_model_I, subsequent_mask  # noqa: E402
 
-# Reuse optoformer's sim and eval utilities
+# Reuse prism's sim and eval utilities
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from optoformer.data.sim import load_nk, simulate  # noqa: E402
-from optoformer.eval.metrics import SpectrumMetrics  # noqa: E402
-from optoformer.eval.targets import HANDCRAFTED_TARGETS  # noqa: E402
-from optoformer.eval.visualize import (  # noqa: E402
+from prism.data.sim import load_nk, simulate  # noqa: E402
+from prism.eval.metrics import SpectrumMetrics  # noqa: E402
+from prism.eval.targets import HANDCRAFTED_TARGETS  # noqa: E402
+from prism.eval.visualize import (  # noqa: E402
     plot_beam_candidates,
     plot_design_comparison,
     plot_scatter,

@@ -25,11 +25,11 @@ import numpy as np
 import pyarrow.feather as feather
 import torch
 
-from optoformer.data.dataset import Vocab
-from optoformer.eval.targets import HANDCRAFTED_TARGETS
-from optoformer.model.prefix_material_thk_model import InverseModel
-from optoformer.training.reward import TMMReward
-from optoformer.training.rlvr import MixedSpectrumSource, train_rlvr
+from prism.data.dataset import Vocab
+from prism.eval.targets import HANDCRAFTED_TARGETS
+from prism.model.prefix_material_thk_model import InverseModel
+from prism.training.reward import TMMReward
+from prism.training.rlvr import MixedSpectrumSource, train_rlvr
 
 
 def _find_arrow_files(path: str) -> list[str]:
@@ -112,7 +112,6 @@ def main() -> None:
     d_ff = config.get("d_ff", 2048)
     dropout = config.get("dropout", 0.1)
     thk_head_hidden_layers = config.get("thk_head_hidden_layers", 2)
-    log_space_thk = config.get("log_space_thk", True)
 
     model_kwargs = dict(
         vocab_size=len(vocab),
@@ -122,7 +121,6 @@ def main() -> None:
         d_ff=d_ff,
         dropout=dropout,
         thk_head_hidden_layers=thk_head_hidden_layers,
-        log_space_thk=log_space_thk,
     )
 
     # Policy model (trainable)

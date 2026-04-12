@@ -5,7 +5,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-from optoformer.constants import WL_NM, N_WL
+from prism.constants import WL_NM, N_WL
 
 
 def plot_spectrum_comparison(

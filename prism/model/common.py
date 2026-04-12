@@ -1,15 +1,13 @@
 """
-Shared transformer building blocks used by both Architecture A and Architecture B.
+Shared transformer building blocks.
 
 Components:
-  - apply_rope         – Rotary Position Embedding
+  - apply_rope         – Rotary Position Embedding (cumulative depth in nm)
   - MultiHeadAttention – RoPE-aware multi-head attention
   - FeedForward        – two-layer MLP with GELU
   - ResidualConnection – pre-norm residual wrapper
   - EncoderLayer       – self-attention + feed-forward
-  - DecoderLayer       – self-attention + cross-attention + feed-forward
-  - SpectrumHead       – CLS hidden state → spectrum floats
-  - SpectrumProjection – spectrum floats → memory token for cross-attention
+  - SpectrumProjection – spectrum floats → prefix token
 """
 
 import math
@@ -19,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from optoformer.constants import N_SPECTRUM
+from prism.constants import N_SPECTRUM
 
 
 # ── Rotary Position Embedding ──────────────────────────────────────────────────
@@ -201,39 +199,10 @@ class EncoderLayer(nn.Module):
         return x
 
 
-class DecoderLayer(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float):
-        super().__init__()
-        self.self_attn  = MultiHeadAttention(d_model, n_heads, dropout)
-        self.cross_attn = MultiHeadAttention(d_model, n_heads, dropout)
-        self.ff  = FeedForward(d_model, d_ff, dropout)
-        self.res1 = ResidualConnection(d_model, dropout)
-        self.res2 = ResidualConnection(d_model, dropout)
-        self.res3 = ResidualConnection(d_model, dropout)
-
-    def forward(
-        self,
-        x: Tensor,
-        memory: Tensor,
-        tgt_mask: Tensor | None = None,
-        mem_mask: Tensor | None = None,
-        positions: Tensor | None = None,
-        rope_scale_method: str = "none",
-        rope_scale_factor: float = 1.0,
-    ) -> Tensor:
-        x = self.res1(x, lambda z: self.self_attn(
-            z, z, z, tgt_mask, positions,
-            rope_scale_method=rope_scale_method, rope_scale_factor=rope_scale_factor,
-        ))
-        x = self.res2(x, lambda z: self.cross_attn(z, memory, memory, mem_mask))
-        x = self.res3(x, self.ff)
-        return x
-
-
 # ── Spectrum I/O heads ─────────────────────────────────────────────────────────
 
 class SpectrumProjection(nn.Module):
-    """142-float spectrum → memory [B, 1, d_model] for cross-attention."""
+    """142-float spectrum → [B, 1, d_model] prefix token."""
 
     def __init__(self, d_model: int, n_spectrum: int = N_SPECTRUM):
         super().__init__()

@@ -4,14 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**optoformer** is a transformer-based model for thin-film optical design. The core innovation is a **dual-sequence representation** where materials and thicknesses are separate streams rather than fused tokens, with thickness treated as a continuous float (nm) instead of a categorical token.
+**PRISM** (Position-encoded Regressive Inverse Spectral Model) is a transformer-based model for thin-film optical design. The core innovations are a **dual-head, single-backbone architecture** (shared decoder with separate material and thickness output heads) and **cumulative-depth RoPE positional encoding**, with thickness treated as a continuous float (nm) instead of a categorical token.
 
-The active architecture is **Augmented Regression RoPE Thickness Encoding** (`prefix_material_thk_model.py`):
+The architecture (`prefix_material_thk_model.py`):
 - Spectrum projected as a prefix token; causal self-attention only (no cross-attention)
 - Material-only learned embedding; thickness encoded via cumulative-depth RoPE
-- Per-material thickness head: multi-layer MLP outputting `[B, T, vocab_size]` — one thickness prediction per material, enabling joint (material, thickness) beam search
-
-Earlier variants (Thickness Embedding, RoPE Thickness Encoding, Prefix RoPE Thickness Encoding) are preserved in the codebase but not used by training/eval scripts.
+- Per-material thickness head: multi-layer MLP with softplus activation (log-space), outputting `[B, T, vocab_size]` — one thickness prediction per material, enabling joint (material, thickness) beam search
 
 ## Setup
 
@@ -55,17 +53,14 @@ python evaluate.py \
 
 ### Package structure
 ```
-optoformer/
+prism/
 ├── data/
 │   ├── sim.py        # TMM simulation, nk CSV loading, cubic-spline interpolation
 │   └── dataset.py    # Vocab, Batch, ThinFilmDataset, make_dataloader
 ├── model/
 │   ├── common.py                    # Shared building blocks (attention, FFN, RoPE)
-│   ├── prefix_material_thk_model.py # Active: Augmented Regression RoPE Thickness Encoding
-│   ├── prefix_model.py              # Archived: Prefix RoPE Thickness Encoding
-│   ├── thickness_rope_model.py      # Archived: RoPE Thickness Encoding
-│   ├── thickness_embedding_model.py # Archived: Thickness Embedding
-│   └── transformer.py               # Re-exports InverseModel from active architecture
+│   ├── prefix_material_thk_model.py # InverseModel: spectrum prefix + RoPE + dual heads
+│   └── transformer.py               # Re-exports InverseModel
 ├── training/
 │   └── train.py      # CosineAnnealing+Warmup, LabelSmoothing, train_inverse
 └── eval/
@@ -122,7 +117,7 @@ Cosine annealing with linear warmup: `peak_lr=3e-4`, `warmup_steps=4000`, `min_l
 ### Loss functions
 
 - **Material head**: label-smoothed KL divergence (`smoothing=0.1`)
-- **Thickness head**: masked MSE (nm), scaled by `thk_loss_weight` (default `0.001`)
+- **Thickness head**: masked MSE in log-space, scaled by `thk_loss_weight` (default `1.0`)
 - Both normalised by non-padding token count. Per-token component losses logged each epoch.
 
 ### RoPE positions

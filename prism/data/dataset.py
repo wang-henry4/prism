@@ -21,7 +21,7 @@ from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
-from optoformer.constants import MATERIALS
+from prism.constants import MATERIALS
 
 
 class Vocab:

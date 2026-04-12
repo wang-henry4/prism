@@ -1,12 +1,12 @@
 """
-Prefix-conditioned model variant with per-material thickness predictions.
+Inverse thin-film design model with per-material thickness predictions.
 
-Same architecture as prefix_model (spectrum prefix, causal self-attention,
-RoPE with cumulative depth), but the thickness head outputs a prediction
-for every material in the vocab.  This allows beam search to jointly score
-(material, thickness) pairs without committing to a material first.
+Spectrum prefix conditioning, causal self-attention, cumulative-depth RoPE,
+and a per-material thickness MLP head that enables joint (material, thickness)
+beam search.
 
-The thickness head is a multi-layer MLP for added non-linearity.
+Thickness is predicted in log-space (softplus activation) and converted to nm
+via THK_MIN * exp(output).
 """
 
 import math
@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from optoformer.constants import N_SPECTRUM, THK_MIN
+from prism.constants import N_SPECTRUM, THK_MIN
 
 from .common import (
     EncoderLayer,
@@ -46,10 +46,8 @@ class ThicknessMLPHead(nn.Module):
     Each output dimension corresponds to the predicted thickness for that
     material ID, enabling joint (material, thickness) beam search.
 
-    When log_space=True, the raw output is passed through softplus to ensure
-    positivity (representing log(thk / THK_MIN)).  The caller converts to nm
-    via ``THK_MIN * exp(output)``.  When log_space=False (default), the raw
-    linear output is returned directly (nm).
+    Output is passed through softplus to ensure positivity (representing
+    log(thk / THK_MIN)).  The caller converts to nm via ``THK_MIN * exp(output)``.
     """
 
     def __init__(
@@ -59,10 +57,8 @@ class ThicknessMLPHead(nn.Module):
         n_hidden_layers: int = 2,
         d_hidden: int | None = None,
         dropout: float = 0.1,
-        log_space: bool = True,
     ):
         super().__init__()
-        self.log_space = log_space
         d_hidden = d_hidden or d_model
         layers: list[nn.Module] = []
 
@@ -79,23 +75,16 @@ class ThicknessMLPHead(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: Tensor) -> Tensor:
-        out = self.net(x)
-        if self.log_space:
-            # softplus ensures output > 0 (represents log(thk / THK_MIN))
-            out = F.softplus(out)
-        return out
+        # softplus ensures output > 0 (represents log(thk / THK_MIN))
+        return F.softplus(self.net(x))
 
 
 class InverseModel(nn.Module):
     """
     Prefix-conditioned autoregressive model with per-material thickness head.
 
-    Identical to prefix_model.InverseModel except:
-      - thk_head outputs [B, T, vocab_size] instead of [B, T, 1]
-      - thk_head is a multi-layer MLP (ThicknessMLPHead)
-
     The i-th output of thk_head at position t is the predicted thickness
-    if material i is chosen at that position.
+    (in log-space) if material i is chosen at that position.
     """
 
     def __init__(
@@ -108,14 +97,12 @@ class InverseModel(nn.Module):
         dropout: float = 0.1,
         n_spectrum: int = N_SPECTRUM,
         thk_head_hidden_layers: int = 2,
-        log_space_thk: bool = True,
         rope_scale_method: str = "none",
         rope_scale_factor: float = 1.0,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
-        self.log_space_thk = log_space_thk
         self.rope_scale_method = rope_scale_method
         self.rope_scale_factor = rope_scale_factor
 
@@ -132,7 +119,6 @@ class InverseModel(nn.Module):
             n_hidden_layers=thk_head_hidden_layers,
             d_hidden=d_model,
             dropout=dropout,
-            log_space=log_space_thk,
         )
 
         self._init_weights()
@@ -154,9 +140,8 @@ class InverseModel(nn.Module):
 
         Returns:
             mat_logits: [B, T, vocab_size]  — logits at each decoder position
-            thk_pred:   [B, T, vocab_size]  — per-material thickness prediction.
-                        When log_space_thk=True this is log(thk/THK_MIN) (use
-                        thk_to_nm() to convert).  Otherwise raw nm.
+            thk_pred:   [B, T, vocab_size]  — per-material thickness prediction
+                        in log-space (use thk_to_nm() to convert to nm).
         """
         B, T = tgt_mat.shape
 
@@ -196,13 +181,10 @@ class InverseModel(nn.Module):
         return mat_logits, thk_pred
 
     def thk_to_nm(self, thk_pred: Tensor) -> Tensor:
-        """Convert thickness head output to nm.
+        """Convert log-space thickness head output to nm.
 
-        No-op when log_space_thk=False.  When True, computes
-        ``THK_MIN * exp(clamp(thk_pred, max=8))`` (~29 800 nm safety cap).
+        Computes ``THK_MIN * exp(clamp(thk_pred, max=8))`` (~29 800 nm safety cap).
         """
-        if not self.log_space_thk:
-            return thk_pred
         return THK_MIN * torch.exp(thk_pred.clamp(max=8.0))
 
     @staticmethod

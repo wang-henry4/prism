@@ -11,7 +11,7 @@ Add new targets by appending to HANDCRAFTED_TARGETS.
 
 import numpy as np
 
-from optoformer.constants import N_WL, N_SPECTRUM, WL_NM
+from prism.constants import N_WL, N_SPECTRUM, WL_NM
 
 
 def _make_spectrum(reflectance: np.ndarray, transmittance: np.ndarray) -> list[float]:

@@ -17,7 +17,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from optoformer.constants import (
+from prism.constants import (
     MATERIALS, N_WL, THK_MAX, THK_MIN, THK_STEP, MAX_LAYERS,
 )
 from baselines.diff_tmm import _build_nk_tensor, tmm_spectrum

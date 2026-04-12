@@ -1,5 +1,5 @@
 [project]
-name = "optoformer"
+name = "prism"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,4 +19,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["optoformer"]
+packages = ["prism"]

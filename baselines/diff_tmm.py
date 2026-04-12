@@ -5,15 +5,15 @@ Supports gradient-based optimization of thin-film layer thicknesses
 and soft material selection via autodiff.
 
 Stack: air (semi-inf) | coherent layers | incoherent substrate (500 µm) | air (semi-inf)
-Matches optoformer's numpy inc_tmm exactly.
+Matches prism's numpy inc_tmm exactly.
 """
 
 import torch
 import numpy as np
 from torch import Tensor
 
-from optoformer.constants import WL_NM, N_WL, MATERIALS, SUBSTRATE
-from optoformer.data.sim import load_nk
+from prism.constants import WL_NM, N_WL, MATERIALS, SUBSTRATE
+from prism.data.sim import load_nk
 
 
 def _build_nk_tensor(nk_dir: str) -> tuple[Tensor, Tensor]:
@@ -106,7 +106,7 @@ def tmm_spectrum(
     sub_nk: Tensor,            # [N_WL] complex
 ) -> Tensor:
     """
-    Differentiable TMM matching optoformer's inc_tmm.
+    Differentiable TMM matching prism's inc_tmm.
 
     Coherent thin-film stack + incoherent substrate combination.
 

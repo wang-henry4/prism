@@ -31,10 +31,10 @@ from multiprocessing import Pool
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from optoformer.constants import N_SPECTRUM
-from optoformer.data.sim import load_nk, simulate
-from optoformer.eval.metrics import SpectrumMetrics
-from optoformer.eval.targets import HANDCRAFTED_TARGETS
+from prism.constants import N_SPECTRUM
+from prism.data.sim import load_nk, simulate
+from prism.eval.metrics import SpectrumMetrics
+from prism.eval.targets import HANDCRAFTED_TARGETS
 from baselines.diff_tmm import _build_nk_tensor
 from baselines.optim_baselines import (
     diff_tmm_optimize,

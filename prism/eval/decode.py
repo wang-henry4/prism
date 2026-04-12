@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributions import Categorical
 
-from optoformer.constants import THK_MIN, THK_MAX
+from prism.constants import THK_MIN, THK_MAX
 
 
 def greedy_decode(
@@ -47,17 +47,11 @@ def greedy_decode(
             tgt_mask = causal.unsqueeze(0).expand(B, -1, -1)
 
             mat_logits, thk_pred = model(spectrum, mat_seqs, thk_seqs, tgt_mask)
-            # Convert to nm if model uses log-space thickness
-            if hasattr(model, "thk_to_nm"):
-                thk_pred = model.thk_to_nm(thk_pred)
+            thk_pred = model.thk_to_nm(thk_pred)
 
             next_mat = mat_logits[:, -1, :].argmax(dim=-1)  # [B]
-            # thk_pred is [B, T] or [B, T, vocab_size]
-            if thk_pred.dim() == 3:
-                # Per-material thickness: index by chosen material
-                next_thk = thk_pred[:, -1, :].gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [B]
-            else:
-                next_thk = thk_pred[:, -1]  # [B]
+            # Per-material thickness: index by chosen material
+            next_thk = thk_pred[:, -1, :].gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [B]
 
             for b in range(B):
                 if not finished[b]:
@@ -139,16 +133,10 @@ def beam_search_decode(
                 tgt_mask = causal.unsqueeze(0).expand(K, -1, -1)
 
                 mat_logits, thk_pred = model(spec_k, beam_mat, beam_thk, tgt_mask)
-                if hasattr(model, "thk_to_nm"):
-                    thk_pred = model.thk_to_nm(thk_pred)
+                thk_pred = model.thk_to_nm(thk_pred)
 
                 log_probs = F.log_softmax(mat_logits[:, -1, :], dim=-1)  # [K, V]
-                # thk_pred is [K, T] or [K, T, vocab_size]
-                per_material_thk = thk_pred.dim() == 3
-                if per_material_thk:
-                    next_thk_all = thk_pred[:, -1, :]  # [K, V] — thickness per material
-                else:
-                    next_thk = thk_pred[:, -1]  # [K]
+                next_thk_all = thk_pred[:, -1, :]  # [K, V] — thickness per material
 
                 # Mask inactive beams
                 log_probs[~beam_active] = -float("inf")
@@ -167,11 +155,7 @@ def beam_search_decode(
 
                 # Build new beams
                 new_mat    = torch.cat([beam_mat[beam_idx], token_idx.unsqueeze(1)], dim=1)
-                if per_material_thk:
-                    # Each beam gets the thickness predicted for its chosen material
-                    chosen_thk = next_thk_all[beam_idx, token_idx].unsqueeze(1)  # [K, 1]
-                else:
-                    chosen_thk = next_thk[beam_idx].unsqueeze(1)  # [K, 1]
+                chosen_thk = next_thk_all[beam_idx, token_idx].unsqueeze(1)  # [K, 1]
                 new_thk    = torch.cat([beam_thk[beam_idx], chosen_thk], dim=1)
                 new_scores = topk_scores
                 new_active = torch.ones(K, dtype=torch.bool, device=device)
@@ -284,15 +268,10 @@ def beam_search_decode_topk(
                 tgt_mask = causal.unsqueeze(0).expand(K, -1, -1)
 
                 mat_logits, thk_pred = model(spec_k, beam_mat, beam_thk, tgt_mask)
-                if hasattr(model, "thk_to_nm"):
-                    thk_pred = model.thk_to_nm(thk_pred)
+                thk_pred = model.thk_to_nm(thk_pred)
 
                 log_probs = F.log_softmax(mat_logits[:, -1, :], dim=-1)
-                per_material_thk = thk_pred.dim() == 3
-                if per_material_thk:
-                    next_thk_all = thk_pred[:, -1, :]
-                else:
-                    next_thk = thk_pred[:, -1]
+                next_thk_all = thk_pred[:, -1, :]
 
                 log_probs[~beam_active] = -float("inf")
                 log_probs[~beam_active, vocab.PAD] = 0.0
@@ -306,10 +285,7 @@ def beam_search_decode_topk(
                 token_idx = topk_flat_idx % V
 
                 new_mat = torch.cat([beam_mat[beam_idx], token_idx.unsqueeze(1)], dim=1)
-                if per_material_thk:
-                    chosen_thk = next_thk_all[beam_idx, token_idx].unsqueeze(1)
-                else:
-                    chosen_thk = next_thk[beam_idx].unsqueeze(1)
+                chosen_thk = next_thk_all[beam_idx, token_idx].unsqueeze(1)
                 new_thk    = torch.cat([beam_thk[beam_idx], chosen_thk], dim=1)
                 new_scores = topk_scores
                 new_active = torch.ones(K, dtype=torch.bool, device=device)
@@ -438,10 +414,8 @@ def sample_decode(
         tgt_mask = causal.unsqueeze(0).expand(N, -1, -1)
 
         mat_logits, thk_pred = model(spec_expanded, mat_seqs, thk_seqs, tgt_mask)
-        # Convert to nm if model uses log-space thickness
-        if hasattr(model, "thk_to_nm"):
-            thk_pred = model.thk_to_nm(thk_pred)
-        # mat_logits: [N, T, V],  thk_pred: [N, T, V] (per-material) or [N, T], in nm
+        thk_pred = model.thk_to_nm(thk_pred)
+        # mat_logits: [N, T, V],  thk_pred: [N, T, V] (per-material), in nm
 
         # ── Material sampling ──
         logits_last = mat_logits[:, -1, :]  # [N, V]
@@ -462,11 +436,7 @@ def sample_decode(
         step_mat_lps.append(mat_lp)
 
         # ── Thickness sampling ──
-        per_material_thk = thk_pred.dim() == 3
-        if per_material_thk:
-            thk_mean = thk_pred[:, -1, :].gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [N]
-        else:
-            thk_mean = thk_pred[:, -1]  # [N]
+        thk_mean = thk_pred[:, -1, :].gather(-1, next_mat.unsqueeze(-1)).squeeze(-1)  # [N]
 
         # Reparameterized sampling: thk = mean + σ * ε  (always in nm)
         eps = torch.randn_like(thk_mean)

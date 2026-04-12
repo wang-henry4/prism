@@ -16,12 +16,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from optoformer.constants import N_SPECTRUM, THK_MIN, THK_MAX
-from optoformer.data.dataset import Vocab
-from optoformer.eval.decode import sample_decode, greedy_decode
-from optoformer.eval.metrics import SpectrumMetrics
-from optoformer.eval.targets import HANDCRAFTED_TARGETS
-from optoformer.training.reward import TMMReward
+from prism.constants import N_SPECTRUM, THK_MIN, THK_MAX
+from prism.data.dataset import Vocab
+from prism.eval.decode import sample_decode, greedy_decode
+from prism.eval.metrics import SpectrumMetrics
+from prism.eval.targets import HANDCRAFTED_TARGETS
+from prism.training.reward import TMMReward
 
 
 # ── Data mixing ───────────────────────────────────────────────────────────────
@@ -143,8 +143,7 @@ def compute_ref_log_probs(
             tgt_mask = causal.unsqueeze(0)
 
             mat_logits, thk_pred = ref_model(spec, mat_seq, thk_seq, tgt_mask)
-            if hasattr(ref_model, "thk_to_nm"):
-                thk_pred = ref_model.thk_to_nm(thk_pred)
+            thk_pred = ref_model.thk_to_nm(thk_pred)
             # mat_logits: [1, T, V], thk_pred: [1, T, V] (nm)
 
             log_probs = F.log_softmax(mat_logits[0], dim=-1)  # [T, V]
@@ -157,12 +156,8 @@ def compute_ref_log_probs(
 
             # Thickness log-probs (Gaussian)
             thk_lp_sum = 0.0
-            per_material_thk = thk_pred.dim() == 3
             for t_idx in range(len(mats)):
-                if per_material_thk:
-                    mu = thk_pred[0, t_idx, target_ids[t_idx]]
-                else:
-                    mu = thk_pred[0, t_idx]
+                mu = thk_pred[0, t_idx, target_ids[t_idx]]
                 thk_val = target_thk[t_idx]
                 lp = -0.5 * ((thk_val - mu) / thk_noise_std) ** 2 - log_norm_const
                 thk_lp_sum = thk_lp_sum + lp
@@ -224,8 +219,7 @@ def compute_ref_log_probs_batched(
 
     with torch.no_grad():
         mat_logits, thk_pred = ref_model(spec, input_mat, input_thk, tgt_mask)
-        if hasattr(ref_model, "thk_to_nm"):
-            thk_pred = ref_model.thk_to_nm(thk_pred)
+        thk_pred = ref_model.thk_to_nm(thk_pred)
 
     log_probs = F.log_softmax(mat_logits, dim=-1)  # [N, T, V]
 
@@ -236,11 +230,7 @@ def compute_ref_log_probs_batched(
     mat_lp_sum = (mat_lp * valid_mask).sum(dim=1)  # [N]
 
     # Thickness log-probs (only at non-EOS, non-PAD target positions)
-    per_material_thk = thk_pred.dim() == 3
-    if per_material_thk:
-        thk_mu = thk_pred.gather(-1, target_mat.unsqueeze(-1)).squeeze(-1)  # [N, T]
-    else:
-        thk_mu = thk_pred  # [N, T]
+    thk_mu = thk_pred.gather(-1, target_mat.unsqueeze(-1)).squeeze(-1)  # [N, T]
 
     thk_lp = -0.5 * ((target_thk - thk_mu) / thk_noise_std) ** 2 - log_norm_const
     # Only count thickness log-prob for actual material positions (not EOS/PAD)

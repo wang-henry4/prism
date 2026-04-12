@@ -22,8 +22,8 @@ import pyarrow as pa
 import pyarrow.feather as feather
 from tqdm import tqdm
 
-from optoformer.constants import MATERIALS, THK_MIN, THK_MAX, THK_STEP, MIN_LAYERS, MAX_LAYERS
-from optoformer.data.sim import load_nk, simulate
+from prism.constants import MATERIALS, THK_MIN, THK_MAX, THK_STEP, MIN_LAYERS, MAX_LAYERS
+from prism.data.sim import load_nk, simulate
 
 # ── Worker-process globals ─────────────────────────────────────────────────────
 _nk_dict: dict | None = None

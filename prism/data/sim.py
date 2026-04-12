@@ -12,7 +12,7 @@ import pandas as pd
 from scipy.interpolate import CubicSpline
 from tmm import inc_tmm
 
-from optoformer.constants import MATERIALS, SUBSTRATE, WL_NM, WL_UM, N_WL
+from prism.constants import MATERIALS, SUBSTRATE, WL_NM, WL_UM, N_WL
 
 
 def load_nk(nk_dir: str, materials: list[str] | None = None) -> dict[str, np.ndarray]:

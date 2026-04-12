@@ -1,14 +1,14 @@
-# Optoformer 13M Model Evaluation Report
+# PRISM 13M Model Evaluation Report
 
 ## 1. Model Overview
 
 | Property | Value |
 |---|---|
-| **Model** | Optoformer (Augmented Regression RoPE Thickness Encoding) |
+| **Model** | PRISM (Position-encoded Regressive Inverse Spectral Model) |
 | **Parameters** | ~13M |
 | **Architecture** | `d_model=256`, `n_layers=4`, `n_heads=4`, `d_ff=1024` |
 | **Thickness head** | 2-hidden-layer MLP, log-space output |
-| **Checkpoint** | `saved_models/inverse/optoformer_len_20_13m_10nm/best.pt` (epoch 29) |
+| **Checkpoint** | `saved_models/inverse/prism_len_20_13m_10nm/best.pt` (epoch 29) |
 
 ### Training Data
 

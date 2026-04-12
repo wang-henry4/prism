@@ -9,8 +9,8 @@ from multiprocessing import Pool
 
 import numpy as np
 
-from optoformer.constants import N_SPECTRUM
-from optoformer.data.sim import load_nk, simulate
+from prism.constants import N_SPECTRUM
+from prism.data.sim import load_nk, simulate
 
 
 # ── Worker helpers (module-level for pickling) ────────────────────────────────
