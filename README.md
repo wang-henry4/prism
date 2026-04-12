@@ -1,6 +1,6 @@
 # PRISM -- Position-encoded Regressive Inverse Spectral Model
 
-PRISM is a 13M-parameter autoregressive transformer that solves the **inverse thin-film design problem**: given a target optical spectrum, generate a multilayer thin-film stack (materials and thicknesses) whose physical response matches it. The model decodes layer-by-layer, jointly predicting each layer's material and thickness until it terminates, then the predicted structure is verified via Transfer Matrix Method (TMM) simulation.
+PRISM is an autoregressive transformer for **inverse thin-film optical design**: given a target optical spectrum, generate a multilayer thin-film stack (materials and thicknesses) whose physical response matches it. The model decodes layer-by-layer, jointly predicting each layer's material and thickness until it terminates, then the predicted structure is verified via Transfer Matrix Method (TMM) simulation.
 
 Three architectural ideas distinguish PRISM from prior sequence-to-sequence approaches like [OptoGPT](https://github.com/taigaoma1997/optogpt):
 
@@ -24,7 +24,7 @@ Evaluated on 10,000 validation samples with TMM re-simulation (greedy and beam-s
 | OOD: 40-50 layers | 0.0280 | 0.0252 | 2.5x longer sequences |
 | OOD: cum. depth up to 18,000 nm | 0.0275 | 0.0243 | 1.8x deeper than training max |
 
-The model generalises to out-of-distribution sequence lengths and thickness ranges by learning to **compress** designs: it maps long, deep ground-truth stacks into shorter (~10-12 layer), shallower (~2,000-3,300 nm) approximations that preserve spectral fidelity. Compression ratio scales from 1.35x (in-distribution) to 4.8x (50-layer inputs) with minimal quality loss. See [`reports/13m_model_evaluation.md`](reports/13m_model_evaluation.md) for the full evaluation.
+The model generalises to out-of-distribution sequence lengths and thickness ranges by learning to **compress** designs: it maps long, deep ground-truth stacks into shorter, shallower approximations that preserve spectral fidelity. See [`reports/13m_model_evaluation.md`](reports/13m_model_evaluation.md) for the full evaluation.
 
 ---
 
@@ -34,36 +34,37 @@ The model generalises to out-of-distribution sequence lengths and thickness rang
 
 ### Spectrum prefix conditioning
 
-The 142-float target spectrum (71 reflectance + 71 transmittance, 400-1100 nm) is projected through a linear layer into a single `[B, 1, d_model]` token prepended to the decoder sequence. The entire model uses **causal self-attention only** -- no encoder, no cross-attention. The spectrum prefix attends to itself; all subsequent tokens attend to the prefix and to previous tokens. This is simpler than encoder-decoder designs and makes the conditioning always visible in the attention window.
+The target spectrum (reflectance + transmittance) is projected through a linear layer into a single token prepended to the decoder sequence. The entire model uses **causal self-attention only** -- no encoder, no cross-attention. The spectrum prefix attends to itself; all subsequent tokens attend to the prefix and to previous tokens. This is simpler than encoder-decoder designs and makes the conditioning always visible in the attention window.
 
 ### Cumulative-depth RoPE
 
-Standard RoPE encodes sequential position (0, 1, 2, ...). PRISM replaces this with the cumulative physical depth of the film stack in nanometres: `positions = [0, cumsum(thicknesses)]`. The spectrum prefix sits at position 0; each layer token sits at the total depth up to that layer.
+Standard RoPE encodes sequential position (0, 1, 2, ...). PRISM replaces this with the cumulative physical depth of the film stack: `positions = [0, cumsum(thicknesses)]`. The spectrum prefix sits at position 0; each layer token sits at the total depth up to that layer.
 
-This gives the attention mechanism a physically meaningful distance metric -- two layers separated by 500 nm of material interact differently than two layers separated by 50 nm, even if they are adjacent in token index. The position encoding directly reflects optical path length, which governs thin-film interference.
+This gives the attention mechanism a physically meaningful distance metric -- two layers separated by a large gap of material interact differently than two layers in close proximity, even if they are adjacent in token index. The position encoding directly reflects optical path length, which governs thin-film interference.
 
 ### Dual output heads
 
 A single shared transformer backbone feeds two output heads:
 
-- **Material head**: linear projection to `[B, T, vocab_size]` logits over the material vocabulary.
-- **Thickness head**: a multi-layer MLP producing `[B, T, vocab_size]` -- one thickness prediction *per material*. When material `i` is selected at position `t`, the corresponding thickness `thk_head[t, i]` is used.
+- **Material head**: linear projection to logits over the material vocabulary.
+- **Thickness head**: a multi-layer MLP producing one thickness prediction *per material* at each position. When a material is selected, the corresponding thickness prediction is used.
 
 The per-material thickness head is the key enabler for joint beam search. Each beam candidate can evaluate every (material, thickness) pair at every step without a two-stage decode.
 
-### Default hyperparameters
-
-`d_model=256`, `d_ff=1024`, `n_heads=4`, `n_layers=4`, `dropout=0.1`, `thk_head_hidden_layers=2`
-
 ### Training
 
-- **Material loss**: label-smoothed KL divergence (smoothing=0.1)
-- **Thickness loss**: masked MSE in nm, scaled by `thk_loss_weight=0.001`
-- **LR schedule**: cosine annealing with linear warmup (peak 3e-4, 4000 warmup steps, min 3e-7)
+- **Material loss**: label-smoothed KL divergence
+- **Thickness loss**: masked MSE in log-space
+- **LR schedule**: cosine annealing with linear warmup
+
+See [`CLAUDE.md`](CLAUDE.md) for default hyperparameters and training configuration details.
 
 ---
 
 ## Getting Started
+Pre-generated validation datasets are available on Hugging Face: [HenryWang4/PRISM](https://huggingface.co/datasets/HenryWang4/PRISM). 
+
+A pre-trained model checkpoint is also available: [HenryWang4/PRISM](https://huggingface.co/HenryWang4/PRISM).
 
 ### Install
 
@@ -135,12 +136,40 @@ nk/                      # Per-material n,k CSV files (42 materials)
 
 ---
 
-## Design Space
+## Thin Film Design Space
 
 | Parameter | Range |
 |---|---|
 | Materials | 17 dielectrics/metals + Glass substrate |
-| Thickness per layer | 5-250 nm |
-| Layers per stack | 1-10 |
+| Thickness per layer | 10-500 nm, 10 nm steps |
+| Layers per stack | 1-20 |
 | Wavelength range | 400-1100 nm (71 points, 10 nm steps) |
 | Spectrum | 142 floats (71 reflectance + 71 transmittance) |
+
+---
+
+## Proof-of-Concept Model Details
+
+The current implementation uses a small model to validate the architecture. Production deployments may use different sizes.
+
+### Hyperparameters
+
+| Parameter | Value |
+|---|---|
+| `d_model` | 512 |
+| `d_ff` | 2048 |
+| `n_heads` | 4 |
+| `n_layers` | 4 |
+| `dropout` | 0.1 |
+| `thk_head_hidden_layers` | 2 |
+| **Total parameters** | ~13M |
+
+### Training configuration
+
+- **Material loss**: label-smoothed KL divergence (smoothing=0.1)
+- **Thickness loss**: masked MSE in log-space, scaled by `thk_loss_weight=1.0`
+- **LR schedule**: cosine annealing with linear warmup (peak 3e-4, 4000 warmup steps, min 3e-7)
+
+### OOD generalisation
+
+The model learns to **compress** designs, mapping long/deep ground-truth stacks into shorter (~10-12 layer), shallower (~2,000-3,300 nm) approximations that preserve spectral fidelity. Compression ratio scales from 1.35x (in-distribution) to 4.8x (50-layer inputs) with minimal quality loss.
