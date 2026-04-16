@@ -26,3 +26,6 @@ plots/
 # OS
 .DS_Store
 Thumbs.db
+
+logs/
+paper/

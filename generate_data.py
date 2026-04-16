@@ -54,11 +54,14 @@ def sample_structure(
     min_layers: int,
     max_layers: int,
     length_weights: list[float],
+    thk_min: int = THK_MIN,
+    thk_max: int = THK_MAX,
+    thk_step: int = THK_STEP,
 ) -> tuple[list[str], list[float]]:
     lengths = list(range(min_layers, max_layers + 1))
     n = rng.choices(lengths, weights=length_weights, k=1)[0]
     materials   = rng.choices(MATERIALS, k=n)
-    thicknesses = [float(rng.randrange(THK_MIN, THK_MAX + THK_STEP, THK_STEP)) for _ in range(n)]
+    thicknesses = [float(rng.randrange(thk_min, thk_max + thk_step, thk_step)) for _ in range(n)]
     return materials, thicknesses
 
 
@@ -99,10 +102,13 @@ def _generate_chunk(
     workers: int,
     out_path: str,
     desc: str,
+    thk_min: int = THK_MIN,
+    thk_max: int = THK_MAX,
+    thk_step: int = THK_STEP,
 ) -> None:
     """Sample structures, simulate, and write a single Arrow partition."""
     structures = [
-        sample_structure(rng, min_layers, max_layers, length_weights)
+        sample_structure(rng, min_layers, max_layers, length_weights, thk_min, thk_max, thk_step)
         for _ in range(n_samples)
     ]
     materials_list, thicknesses_list = zip(*structures)
@@ -148,6 +154,9 @@ def main() -> None:
     parser.add_argument("--workers",     type=int,   default=32)
     parser.add_argument("--seed",        type=int,   default=None,
                         help="Random seed (default: random). Set for reproducibility.")
+    parser.add_argument("--thk_min",     type=int,   default=THK_MIN)
+    parser.add_argument("--thk_max",     type=int,   default=THK_MAX)
+    parser.add_argument("--thk_step",    type=int,   default=THK_STEP)
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -174,6 +183,7 @@ def main() -> None:
                 rng, chunk_n, args.min_layers, args.max_layers,
                 length_weights, args.nk_dir, args.workers, part_path,
                 desc=f"train chunk {chunk_num + 1}/{n_chunks}",
+                thk_min=args.thk_min, thk_max=args.thk_max, thk_step=args.thk_step,
             )
             part_idx += 1
             chunk_num += 1
@@ -190,6 +200,7 @@ def main() -> None:
             rng, args.n_dev, args.min_layers, args.max_layers,
             length_weights, args.nk_dir, args.workers, part_path,
             desc="dev",
+            thk_min=args.thk_min, thk_max=args.thk_max, thk_step=args.thk_step,
         )
 
     # ── Val set ───────────────────────────────────────────────────────────────
@@ -203,6 +214,7 @@ def main() -> None:
             rng, args.n_val, args.min_layers, args.max_layers,
             length_weights, args.nk_dir, args.workers, part_path,
             desc="val",
+            thk_min=args.thk_min, thk_max=args.thk_max, thk_step=args.thk_step,
         )
 
     print("\nDone.")

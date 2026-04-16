@@ -7,6 +7,7 @@ import os
 import time
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
@@ -120,12 +121,12 @@ def _grad_stats(model: nn.Module) -> dict[str, float]:
 
 
 def _move_inverse_batch(batch, device):
-    batch.spectrum    = batch.spectrum.to(device)
-    batch.tgt_mat     = batch.tgt_mat.to(device)
-    batch.tgt_thk     = batch.tgt_thk.to(device)
-    batch.tgt_y_mat   = batch.tgt_y_mat.to(device)
-    batch.tgt_y_thk   = batch.tgt_y_thk.to(device)
-    batch.tgt_mask    = batch.tgt_mask.to(device)
+    batch.spectrum    = batch.spectrum.to(device, non_blocking=True)
+    batch.tgt_mat     = batch.tgt_mat.to(device, non_blocking=True)
+    batch.tgt_thk     = batch.tgt_thk.to(device, non_blocking=True)
+    batch.tgt_y_mat   = batch.tgt_y_mat.to(device, non_blocking=True)
+    batch.tgt_y_thk   = batch.tgt_y_thk.to(device, non_blocking=True)
+    batch.tgt_mask    = batch.tgt_mask.to(device, non_blocking=True)
     return batch
 
 
@@ -173,7 +174,7 @@ def train_inverse(
 
     vocab_dict = vocab.word2id if vocab is not None else {}
     n_train_batches = len(train_loader)
-    n_dev_batches   = len(dev_loader)
+    n_dev_batches   = len(dev_loader)        
 
     def _forward_loss(batch) -> tuple[Tensor, int, float, float]:
         """Returns (total_loss, ntokens, mat_loss_sum, thk_loss_sum)."""
@@ -209,7 +210,8 @@ def train_inverse(
             step_start = time.perf_counter()
             batch = _move_inverse_batch(batch, device)
             optimizer.zero_grad()
-            loss, ntokens, mat_l, thk_l = _forward_loss(batch)
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                loss, ntokens, mat_l, thk_l = _forward_loss(batch)
             loss.backward()
             gs = _grad_stats(model)
             epoch_grad_norms.append(gs["grad_norm"])
@@ -252,7 +254,8 @@ def train_inverse(
         with torch.no_grad():
             for step, batch in enumerate(dev_loader, 1):
                 batch = _move_inverse_batch(batch, device)
-                loss, ntokens, mat_l, thk_l = _forward_loss(batch)
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                    loss, ntokens, mat_l, thk_l = _forward_loss(batch)
                 dev_loss_sum += loss.item() * ntokens
                 dev_mat_sum  += mat_l
                 dev_thk_sum  += thk_l
@@ -297,16 +300,18 @@ def train_inverse(
 
         ckpt = {
             "epoch": epoch,
-            "model_state": model.state_dict(),
+            "model_state": (model.module if hasattr(model, "module") else model).state_dict(),
             "optimizer_state": optimizer.state_dict(),
             "scheduler_state": scheduler.state_dict(),
             "loss_history": loss_history,
             "config": config or {},
             "vocab": vocab_dict,
         }
-        torch.save(ckpt, os.path.join(run_dir, "latest.pt"))
-        if dev_loss < best_dev_loss:
-            best_dev_loss = dev_loss
-            torch.save(ckpt, os.path.join(run_dir, "best.pt"))
+        is_main = not dist.is_initialized() or dist.get_rank() == 0
+        if is_main:
+            torch.save(ckpt, os.path.join(run_dir, "latest.pt"))
+            if dev_loss < best_dev_loss:
+                best_dev_loss = dev_loss
+                torch.save(ckpt, os.path.join(run_dir, "best.pt"))
 
     return loss_history

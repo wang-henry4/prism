@@ -23,10 +23,10 @@ from multiprocessing import Pool
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from optoformer.constants import MATERIALS, MAX_LAYERS, N_SPECTRUM, THK_MIN, THK_MAX
-from optoformer.data.sim import load_nk, simulate
-from optoformer.eval.metrics import SpectrumMetrics
-from optoformer.eval.targets import HANDCRAFTED_TARGETS
+from prism.constants import MATERIALS, MAX_LAYERS, N_SPECTRUM, THK_MIN, THK_MAX
+from prism.data.sim import load_nk, simulate
+from prism.eval.metrics import SpectrumMetrics
+from prism.eval.targets import HANDCRAFTED_TARGETS
 from baselines.nn_models import TandemNetwork, CVAE, N_MATERIALS
 
 _nk_dict = None

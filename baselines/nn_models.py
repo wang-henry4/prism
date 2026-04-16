@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from optoformer.constants import MAX_LAYERS, N_SPECTRUM
+from prism.constants import MAX_LAYERS, N_SPECTRUM
 
 N_MATERIALS = 17
 
