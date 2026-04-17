@@ -78,7 +78,7 @@ The model is evaluated on data drawn from the same distribution as training (10 
 
 The model achieves strong in-distribution performance with R^2 = 0.957 (oracle) and R^2 = 0.945 (greedy). Greedy decoding outperforms beam top-1, indicating that beam search score ranking does not correlate well with spectral fidelity; however, the oracle metric shows that beam search does surface better candidates -- the gap between greedy and oracle represents headroom available through improved re-ranking.
 
-**Sequence length behaviour**: The model generates a mean of 10.1 layers (median 10) despite ground-truth mean of 13.7. The decoded length histogram shows a sharp spike at 9--10 layers (~61% of all samples), indicating the model has found a preferred operating length for spectral approximation.
+**Sequence length behaviour**: The model generates a mean of 10.1 layers (median 10) despite ground-truth mean of 13.7. The decoded length histogram shows a sharp spike at 9--10 layers (~61% of all samples). The model operates in a fixed output length regime, producing designs from its learned prior rather than reproducing the ground-truth structure.
 
 ---
 
@@ -96,7 +96,7 @@ The model was tested on data with thickness step sizes it was **not trained on**
 | Beam Top-1 | 0.01665 | 0.0490 | 0.797 |
 | **Oracle-best** | **0.00373** | **0.0270** | **0.955** |
 
-The model performs comparably to in-distribution data on 5 nm steps. The finer granularity produces shallower structures (mean cum. depth 1,736 nm vs. 3,486 nm for 10 nm) well within the training range. The model generates even shorter sequences here (mean 8.8 layers) and achieves its highest compression ratio.
+The model performs comparably to in-distribution data on 5 nm steps. The finer granularity produces shallower structures (mean cum. depth 1,736 nm vs. 3,486 nm for 10 nm) well within the training range. The model generates even shorter sequences here (mean 8.8 layers).
 
 ### 4.2 OOD: 15 nm Steps -- Thick Designs Only (cum. depth >= 11,000 nm)
 
@@ -109,7 +109,7 @@ The model performs comparably to in-distribution data on 5 nm steps. The finer g
 | NTK-aware | 1.5 | 0.01095 | 0.836 | 0.01054 | 0.843 |
 | YaRN | 1.5 | 0.01265 | 0.811 | 0.01179 | 0.824 |
 
-Despite ground-truth cumulative depths exceeding the training maximum (11,000--13,455 nm vs. 10,000 nm), the model achieves oracle R^2 = 0.943. This is possible because the model compresses 20-layer designs into ~12 layers with cumulative depth ~3,140 nm -- well within the training range. No scaling and Dynamic NTK produce identical results. Static methods (NTK, YaRN) degrade performance, though they remain above R^2 = 0.8.
+Despite ground-truth cumulative depths exceeding the training maximum (11,000--13,455 nm vs. 10,000 nm), the model achieves oracle R^2 = 0.943. The model generates ~12-layer designs with cumulative depth ~3,140 nm -- well within the training range -- that spectrally approximate the 20-layer ground-truth structures. This is possible because the inverse problem is degenerate: many shorter designs produce similar spectra to longer ones. No scaling and Dynamic NTK produce identical results. Static methods (NTK, YaRN) degrade performance, though they remain above R^2 = 0.8.
 
 ### 4.3 OOD: 20 nm Steps -- Thick Designs Only (cum. depth >= 11,000 nm)
 
@@ -122,7 +122,7 @@ Despite ground-truth cumulative depths exceeding the training maximum (11,000--1
 | NTK-aware | 2.0 | 0.01121 | 0.832 | 0.01031 | 0.845 |
 | YaRN | 2.0 | 0.01978 | 0.703 | 0.01750 | 0.737 |
 
-Even with ground-truth cumulative depths up to ~18,000 nm (1.8x training max), the model maintains oracle R^2 = 0.942. The compression strategy is more aggressive here: the model maps 20-layer stacks (mean cum. depth 15,134 nm) to ~12-layer designs (mean cum. depth 3,278 nm) -- a 4.6x depth compression.
+Even with ground-truth cumulative depths up to ~18,000 nm (1.8x training max), the model maintains oracle R^2 = 0.942. The model generates ~12-layer designs (mean cum. depth 3,278 nm) for ground-truth stacks with mean depth 15,134 nm. The large gap between ground-truth and predicted depth (4.6x) underscores the degree of solution degeneracy: physically distinct designs at very different total depths can produce similar spectra.
 
 ---
 
@@ -170,16 +170,18 @@ The model was trained on sequences of 1--20 layers. To test generalization to lo
 
 **Performance is remarkably stable across all three length ranges.** Oracle R^2 is 0.948, 0.946, and 0.947 for len 30, 40, and 50 respectively -- essentially flat. This is only a modest drop from the in-distribution result (0.957).
 
-The model's autoregressive decoder caps out at ~11 layers regardless of ground-truth length, effectively learning a compressed spectral approximation using fewer layers than the ground truth. The compression ratio grows with input length:
+The model generates ~10--11 layers regardless of ground-truth length. This is not compression of the input design (the model never sees the ground-truth structure), but rather reflects two factors: (1) the model's learned prior from training on 1--20 layer data, and (2) the degeneracy of the inverse problem, which permits shorter alternative designs that spectrally approximate longer ones.
 
-| Ground-truth layers | Greedy decoded layers (mean) | Compression ratio | Greedy R^2 | Oracle R^2 |
+| Ground-truth layers | Greedy decoded layers (mean) | GT-to-predicted length ratio | Greedy R^2 | Oracle R^2 |
 |---|---|---|---|---|
 | 1--20 (in-dist) | 10.1 | 1.35x | 0.945 | 0.957 |
 | 20--30 | 11.0 | 2.30x | 0.937 | 0.948 |
 | 30--40 | 11.0 | 3.22x | 0.935 | 0.946 |
 | 40--50 | 11.0 | 4.12x | 0.935 | 0.947 |
 
-**RoPE scaling results**: The same pattern holds as in the thickness-step OOD experiments. No scaling and Dynamic NTK are tied and best. Static methods (NTK, YaRN, PI) all degrade performance significantly. Notably, even though ground-truth cumulative depths reach 2.5x the training maximum, Dynamic NTK still matches the unscaled baseline -- this is because the model's decoded sequences stay within ~11 layers, so the actual RoPE positions used during inference remain within the training range.
+The stability of R^2 across these conditions, despite GT-to-predicted length ratios ranging from 1.35x to 4.12x, demonstrates that the solution space is degenerate enough for ~10-layer designs to approximate spectra from structures up to 50 layers.
+
+**RoPE scaling results**: The same pattern holds as in the thickness-step OOD experiments. No scaling and Dynamic NTK are tied and best. Static methods (NTK, YaRN, PI) all degrade performance significantly. Even though ground-truth cumulative depths reach 2.5x the training maximum, Dynamic NTK still matches the unscaled baseline -- this is because the model's decoded sequences stay within ~11 layers, so the actual RoPE positions used during inference remain within the training range.
 
 **RoPE scaling inflates decoded sequence length**: An interesting side-effect of static RoPE scaling is that it causes the model to generate longer sequences. At len 50, PI produces mean decoded length of 17.5 (vs. 11.0 for no-scale), NTK produces 15.2, and YaRN produces 12.0. Longer decoded sequences do not improve quality -- they correlate with *worse* R^2, suggesting the scaling distorts the model's learned stopping criterion.
 
@@ -191,7 +193,7 @@ Across all conditions, the model exhibits a strong thickness mode at **190--200 
 
 ### Thickness Prediction Patterns
 
-| Condition | GT mean thk (nm) | Greedy mean thk (nm) | Peak bin | Peak fraction | Greedy cum. depth (nm) | GT cum. depth (nm) | Depth compression |
+| Condition | GT mean thk (nm) | Greedy mean thk (nm) | Peak bin | Peak fraction | Greedy cum. depth (nm) | GT cum. depth (nm) | Depth ratio (GT/pred) |
 |---|---|---|---|---|---|---|---|
 | 10 nm (in-dist) | 254.6 | 215.4 | 190--200 | 32.4% | 2,185 | 3,486 | 1.6x |
 | 5 nm (OOD) | 127.8 | 182.8 | 190--200 | 39.2% | 1,610 | 1,736 | 1.1x |
@@ -205,9 +207,9 @@ Across all conditions, the model exhibits a strong thickness mode at **190--200 
 
 1. **Universal thickness mode**: The ~195 nm peak appears across all conditions, suggesting the model has learned that quarter-wave optical thicknesses near 195 nm are an effective building block for spectral reconstruction in the 400--1100 nm range. This is physically sensible: a 195 nm layer of a material with n ~ 2 (e.g., TiO2, Ta2O5, Si3N4) produces quarter-wave interference at ~1560 nm or half-wave near ~780 nm, and multilayer stacks built from these elements can produce a wide range of spectral features across the visible/NIR.
 
-2. **Thickness upsampling for fine-step data**: For 5 nm inputs (GT mean 127.8 nm), the model *increases* predicted thicknesses to 182.8 nm. Combined with shorter sequences (8.8 vs 13.6 layers), the model remaps thin, many-layer designs into fewer, thicker layers.
+2. **Thickness upsampling for fine-step data**: For 5 nm inputs (GT mean 127.8 nm), the model *increases* predicted thicknesses to 182.8 nm. Combined with shorter sequences (8.8 vs 13.6 layers), the model finds alternative designs with fewer, thicker layers.
 
-3. **Stable output depth**: Greedy cumulative depth clusters around 2,000--3,300 nm regardless of input complexity, confirming the model operates in a fixed "output regime" for total optical depth.
+3. **Stable output depth**: Greedy cumulative depth clusters around 2,000--3,300 nm regardless of ground-truth depth or sequence length. This reflects the model's learned prior rather than a property of the input -- the model consistently finds solutions within this depth regime because that is where its training distribution lies.
 
 ---
 
@@ -257,11 +259,11 @@ Across all conditions, there is a consistent pattern in the relationship between
 
 2. **Robust OOD generalisation**: Performance across all OOD conditions (different thickness steps, thick designs, longer sequences) stays within a narrow band of oracle R^2 = 0.942--0.957. This is a remarkably small degradation given that some conditions involve ground-truth structures 4.6x deeper or 2.5x longer than anything seen during training.
 
-3. **Compression as a generalisation strategy**: The model's primary generalisation mechanism is design compression. Rather than reconstructing full-length ground-truth stacks, it generates shorter (~10--12 layer), shallower (~2,000--3,300 nm depth) designs that spectrally approximate the target. This compression ratio scales gracefully from 1.35x (in-distribution) to 4.8x (50-layer inputs) with minimal quality loss.
+3. **Solution degeneracy enables length-invariant performance**: The model generates short (~10--12 layer), shallow (~2,000--3,300 nm depth) designs regardless of the ground-truth structure. This works because the inverse thin-film problem is highly degenerate: many different designs produce similar spectra, and shorter alternative solutions exist for most target spectra. The model finds these alternatives naturally because its training prior favours designs in this length/depth range. The GT-to-predicted length ratio grows from 1.35x (in-distribution) to 4.8x (50-layer inputs) with minimal quality loss, reflecting the breadth of the degenerate solution space rather than any explicit compression mechanism.
 
 4. **Universal thickness mode at ~195 nm**: The model exhibits a strong preference for layer thicknesses around 190--200 nm regardless of the input distribution. This physically corresponds to quarter/half-wave optical thicknesses for common high-index materials in the visible/NIR range, suggesting the model has learned an efficient optical building-block strategy.
 
-5. **RoPE scaling methods do not help**: Across all OOD conditions, no RoPE context extension method (PI, NTK, Dynamic NTK, YaRN) improved over the unscaled baseline. Dynamic NTK matched baseline (never activating since decoded positions stay in-range). Static methods actively harmed performance: NTK and YaRN reduced R^2 by 0.1--0.25; PI degraded more at higher scale factors. An unexpected side-effect is that static RoPE scaling inflates decoded sequence length (PI: up to 17.5 layers vs. 11.0 baseline at len 50), suggesting position distortion disrupts the model's stopping criterion.
+5. **RoPE scaling methods do not help**: Across all OOD conditions, no RoPE context extension method (PI, NTK, Dynamic NTK, YaRN) improved over the unscaled baseline. Dynamic NTK matched baseline (never activating since decoded positions stay in-range). Static methods actively harmed performance: NTK and YaRN reduced R^2 by 0.1--0.25; PI degraded more at higher scale factors. An unexpected side-effect is that static RoPE scaling inflates decoded sequence length (PI: up to 17.5 layers vs. 11.0 baseline at len 50), suggesting position distortion disrupts the model's learned stopping criterion.
 
 6. **Beam search value is limited**: Greedy decoding outperforms beam top-1 by 0.15--0.32 R^2. Oracle-best beam candidates exceed greedy by only ~1%. The beam search scoring function is poorly calibrated for spectral fidelity. A practical deployment could rely on greedy decoding for speed, or use beam search with TMM re-ranking for a modest quality boost.
 
