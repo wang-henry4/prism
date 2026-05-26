@@ -2,6 +2,8 @@
 
 PRISM is an autoregressive transformer for **inverse thin-film optical design**: given a target optical spectrum, generate a multilayer thin-film stack (materials and thicknesses) whose physical response matches it. The model decodes layer-by-layer, jointly predicting each layer's material and thickness until it terminates, then the predicted structure is verified via Transfer Matrix Method (TMM) simulation.
 
+You can play with an interactive version of the model [here](https://www.prism-playground.com/).
+
 Three architectural ideas distinguish PRISM from prior sequence-to-sequence approaches like [OptoGPT](https://github.com/taigaoma1997/optogpt):
 
 1. **Spectrum prefix conditioning** -- the target spectrum is projected into a single learned token and prepended to the decoder sequence, replacing cross-attention with simpler causal self-attention.
