@@ -4,6 +4,7 @@ PRISM is an autoregressive transformer for **inverse thin-film optical design**:
 
 You can play with an interactive version of the model [here](https://www.prism-playground.com/).
 
+
 Three architectural ideas distinguish PRISM from prior sequence-to-sequence approaches like [OptoGPT](https://github.com/taigaoma1997/optogpt):
 
 1. **Spectrum prefix conditioning** -- the target spectrum is projected into a single learned token and prepended to the decoder sequence, replacing cross-attention with simpler causal self-attention.
@@ -11,6 +12,8 @@ Three architectural ideas distinguish PRISM from prior sequence-to-sequence appr
 3. **Per-material thickness head** -- a multi-layer MLP predicts a thickness for *every* material in the vocabulary at each position, enabling beam search to jointly score (material, thickness) pairs without committing to a material first.
 
 Thickness is treated as a **continuous regression target** (nm), not a discretised token.
+
+Arxiv link to the ICML Workshop paper [here](https://arxiv.org/abs/2605.26502)
 
 ---
 
