@@ -1,5 +1,7 @@
 # PRISM -- Position-encoded Regressive Inverse Spectral Model
 
+[![arXiv](https://img.shields.io/badge/arXiv-2605.26502-b31b1b.svg)](https://arxiv.org/abs/2605.26502v2)
+
 PRISM is an autoregressive transformer for **inverse thin-film optical design**: given a target optical spectrum, generate a multilayer thin-film stack (materials and thicknesses) whose physical response matches it. The model decodes layer-by-layer, jointly predicting each layer's material and thickness until it terminates, then the predicted structure is verified via Transfer Matrix Method (TMM) simulation.
 
 You can play with an interactive version of the model [here](https://www.prism-playground.com/).
@@ -13,7 +15,7 @@ Three architectural ideas distinguish PRISM from prior sequence-to-sequence appr
 
 Thickness is treated as a **continuous regression target** (nm), not a discretised token.
 
-Arxiv link to the ICML Workshop paper [here](https://arxiv.org/abs/2605.26502)
+Arxiv link to the ICML Workshop paper [here](https://arxiv.org/abs/2605.26502v2)
 
 ---
 
@@ -178,3 +180,20 @@ The current implementation uses a small model to validate the architecture. Prod
 ### OOD generalisation
 
 The model learns to **compress** designs, mapping long/deep ground-truth stacks into shorter (~10-12 layer), shallower (~2,000-3,300 nm) approximations that preserve spectral fidelity. Compression ratio scales from 1.35x (in-distribution) to 4.8x (50-layer inputs) with minimal quality loss.
+
+---
+
+## Citation
+
+```bibtex
+@inproceedings{wang2026prism,
+  title={PRISM: Position-encoded Regressive Inverse Spectral Model for Multilayer Thin-Film Design},
+  author={Wang, Runtian and Xue, Renhao and Chen, Baige and Wu, Hao},
+  booktitle={AI4Physics Workshop at the 43rd International Conference on Machine Learning},
+  year={2026},
+  eprint={2605.26502},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  doi={10.48550/arXiv.2605.26502}
+}
+```
